@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16
+    container_name: luna-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: luna_c
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d luna_c"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: luna-web
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/luna_c
+    depends_on:
+      db:
+        condition: service_healthy
+    command: pnpm start
+
+  # judge-lite:
+  #   image: ghcr.io/your-org/judge-lite:latest
+  #   container_name: luna-judge
+  #   ports:
+  #     - "50051:50051"
+  #   environment:
+  #     - GRPC_PORT=50051
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '1'
+  #         memory: 512M
+
+volumes:
+  pgdata:

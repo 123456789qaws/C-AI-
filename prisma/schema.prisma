@@ -1,0 +1,64 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  TA
+}
+
+model User {
+  id        String   @id // 学号/工号
+  role      Role
+  name      String
+}
+
+model Task {
+  id          String   @id // fib_L2
+  title       String
+  checkpoints Json     // 存 Gate DSL
+  hiddenTests Json
+}
+
+model AiInteractionLog {
+  id            String   @id @default(cuid())
+  studentId     String
+  taskId        String
+  checkpointId  String
+  ts            DateTime @default(now())
+  role          String   // user | assistant | system
+  promptText    String?  @db.Text
+  aiReply       String?  @db.Text
+  codeBefore    String?  @db.Text
+  codeAfter     String?  @db.Text
+  codeDiff      String?  @db.Text // patch
+  gateResult    String   // passed | failed | escalated
+  gateType      String   // regex | ai_socratic | test_pass
+  model         String   // qwen2.5-coder:7b | deepseek-api
+  tokens        Int?
+  confidence    Float?
+  sessionId     String   // 便于回放
+
+  @@index([studentId, taskId, ts])
+}
+
+model CheckpointProgress {
+  studentId     String
+  taskId        String
+  checkpointId  String
+  passed        Boolean
+  attempts      Int          @default(0)
+  unlockedAt    DateTime?
+
+  @@id([studentId, taskId, checkpointId])
+}
