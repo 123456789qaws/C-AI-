@@ -174,6 +174,49 @@ int main() {
 
   // 教师视角数据
   teacherView: {
+    // 完整参考答案（42 行，覆盖 lockedRanges 12-20 和 22-40）
+    referenceCode: `// Fibonacci 递归实现
+// ============================================
+// 参考答案 - 教师视角
+// ============================================
+#include <stdio.h>
+
+/**
+ * 递归求解 Fibonacci 数列
+ *
+ * 终止条件：当 n <= 1 时，直接返回 n
+ *   - fib(0) = 0
+ *   - fib(1) = 1
+ *
+ * 递推关系：fib(n) = fib(n-1) + fib(n-2)
+ *   - fib(2) = fib(1) + fib(0) = 1
+ *   - fib(3) = fib(2) + fib(1) = 2
+ *   - ...
+ */
+int fib(int n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+/**
+ * 主函数
+ * 读取用户输入，计算并输出 Fibonacci 数
+ */
+int main() {
+    int n;
+    printf("请输入 n: ");
+    scanf("%d", &n);
+
+    if (n < 0) {
+        printf("输入必须为非负数\\n");
+        return 1;
+    }
+
+    printf("fib(%d) = %d\\n", n, fib(n));
+    return 0;
+}`,
     hiddenTests: [
       { input: '0', expected: '0' },
       { input: '1', expected: '1' },

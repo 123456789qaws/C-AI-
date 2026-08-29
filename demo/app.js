@@ -12,7 +12,8 @@ const AppState = {
   chatMessages: [],
   isTeacherView: false,
   lockedDecorations: [],
-  lockRanges: []
+  lockRanges: [],
+  teacherPrevCode: null
 };
 
 // 初始化应用
@@ -648,24 +649,52 @@ function toggleTeacherView() {
   
   const toggle = document.getElementById('teacher-toggle');
   const hiddenTestsPanel = document.getElementById('hidden-tests-panel');
+  const lockStatus = document.getElementById('lock-status');
   
   if (AppState.isTeacherView) {
+    // 保存当前学生代码，以便切回时恢复
+    AppState.teacherPrevCode = AppState.editor.getValue();
+    
+    // 替换编辑器内容为完整参考答案
+    const refCode = MockData.teacherView.referenceCode;
+    if (refCode) {
+      AppState.editor.setValue(refCode);
+    }
+    
     toggle.classList.add('active');
     hiddenTestsPanel.style.display = 'block';
     
     // 显示隐藏测试
     renderHiddenTests();
     
-    // 移除锁定
+    // 移除锁定装饰
     updateLockedRegions();
+    
+    // 更新锁定状态文本
+    if (lockStatus) {
+      lockStatus.textContent = '🔓 教师模式：全部区域已解锁';
+    }
+    
+    // 确保编辑器可编辑
+    AppState.editor.updateOptions({ readOnly: false });
     
     showToast('info', '教师视角', '已切换到教师视角，可以查看所有内容');
   } else {
+    // 恢复学生之前的代码（若无则回退到模板）
+    const prevCode = AppState.teacherPrevCode || AppState.task.templateCode;
+    AppState.editor.setValue(prevCode);
+    AppState.teacherPrevCode = null;
+    
     toggle.classList.remove('active');
     hiddenTestsPanel.style.display = 'none';
     
-    // 恢复锁定
+    // 恢复锁定装饰
     updateLockedRegions();
+    
+    // 恢复锁定状态文本
+    if (lockStatus) {
+      lockStatus.textContent = '🔒 编辑器部分区域已锁定';
+    }
     
     showToast('info', '学生视角', '已切换回学生视角');
   }
