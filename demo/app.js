@@ -234,7 +234,7 @@ function createCheckpointCard(checkpoint, index) {
 
 // 选择检查点
 function selectCheckpoint(checkpoint) {
-  if (checkpoint.status === 'locked') {
+  if (checkpoint.status === 'locked' && !AppState.isTeacherView) {
     showToast('warning', '检查点锁定', '请先通过前面的检查点');
     return;
   }
