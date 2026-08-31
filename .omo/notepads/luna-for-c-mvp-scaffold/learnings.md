@@ -596,3 +596,35 @@ Wired crash-failure context into the Socratic gateway:
 ### Next Steps
 - Task 18: wire on_fail.ai_followup / valgrind_hint from checkpoint config into the chat client
 - Task 17: JWT identity → persist AiInteractionLog / CheckpointProgress
+
+## Task 11: Checkpoint Gate DSL 与 Zod 校验（tasks 真源）
+
+### Date: 2026-08-31
+
+### Summary
+Established the task checkpoint DSL as standalone JSON files (the single source of truth) with zod validation and a server-only loader:
+- src/lib/checkpoint/schema.ts - zod discriminated union: Gate = regex{rule,weight} | ai_socratic{rubric,weight} | test_pass{tests,weight}; Checkpoint {id,title,guide_question,gates(min1),pass_threshold(0..1),unlock{editorRegion[2],hints?},on_fail?{ai_followup?,valgrind_hint?}}; Task {id(/^[A-Za-z0-9_-]+$/),title,description?,checkpoints(min1)}
+- src/lib/checkpoint/loader.ts - server-only, loadTask(taskId) with traversal guard + TaskSchema.parse, listTasks() sorted
+- tasks/fib_L2.json + tasks/linked_list_reverse.json - content mirrors seed.ts checkpoint constants (plus pass_threshold on cp2 which seed omits)
+- tasks/README.md - DSL field reference + add-a-task guide + hidden_tests placeholder note
+
+### Key Decisions
+1. **tasks JSON = 真源** - runtime reads tasks/*.json; prisma Task.checkpoints is a seed-time mirror only. Loader is read-only + server-only → frontend can never modify tasks.
+2. **Discriminated union gates** - z.discriminatedUnion('type') rejects wrong payload per gate type.
+3. **Double taskId guard** - loader regex guard + schema regex on Task.id (path traversal defense).
+4. **unlock.hints kept optional** - doc 8.1/seed include it, spec only names editorRegion; keeps seed-compatible content valid.
+5. **schema.ts client-importable** - only loader.ts carries server-only (judge/ai provider pattern).
+
+### Verification Results
+- ✅ pnpm build exit 0; pnpm lint exit 0
+- ✅ tsx smoke (--conditions react-server): 28/28 PASS - both tasks load with 2 checkpoints, correct unlock regions/on_fail, listTasks sorted, 7 zod rejection cases, 3 loader guard cases
+
+### Gotchas
+1. **seed.ts cp2 lacks pass_threshold** - schema requires it; JSON files add 1.0. Seed↔JSON sync is a manual step until seed imports tasks JSON.
+2. **tsx top-level await breaks in temp dir** (no type:module) - wrap in async main().
+3. **process.exit kills in-flight async assertions** - un-awaited async expectThrow calls silently dropped (phantom 25/28); await everything before exit.
+
+### Next Steps
+- Task 12: gate verify/evaluate logic + /api/checkpoint/verify (weighted pass_threshold scoring, runHiddenTests wiring)
+- Todo 20: create hidden_tests/fib_2.json + linked_list_3.json
+- Optionally make prisma/seed.ts import tasks JSON for auto-sync

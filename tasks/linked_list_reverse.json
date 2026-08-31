@@ -1,0 +1,51 @@
+{
+  "id": "linked_list_reverse",
+  "title": "单链表逆置",
+  "description": "就地逆置单链表：先理解指针所有权（谁暂存 next），再写出迭代版三指针框架并通过隐藏测试。",
+  "checkpoints": [
+    {
+      "id": "cp1",
+      "title": "理解指针所有权",
+      "guide_question": "逆置过程中，哪一个指针负责“暂存下一个节点”？为什么必须暂存？",
+      "gates": [
+        {
+          "type": "regex",
+          "rule": "(next|nxt|tmp).*(保存|暂存|备份)",
+          "weight": 0.4
+        },
+        {
+          "type": "ai_socratic",
+          "rubric": "回答需点出“断链前保存 next，否则丢失后继”",
+          "weight": 0.6
+        }
+      ],
+      "pass_threshold": 0.7,
+      "unlock": {
+        "editorRegion": [12, 25],
+        "hints": ["提示：prev=null, cur=head"]
+      },
+      "on_fail": {
+        "ai_followup": "如果不暂存，cur->next 改掉后还能找到原 next 吗？"
+      }
+    },
+    {
+      "id": "cp2",
+      "title": "尾递归/迭代实现",
+      "guide_question": "写出迭代版三指针框架，跑通隐藏测试",
+      "gates": [
+        {
+          "type": "test_pass",
+          "tests": "hidden_tests/linked_list_3.json",
+          "weight": 1.0
+        }
+      ],
+      "pass_threshold": 1.0,
+      "unlock": {
+        "editorRegion": [26, 50]
+      },
+      "on_fail": {
+        "valgrind_hint": true
+      }
+    }
+  ]
+}

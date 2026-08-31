@@ -1,0 +1,51 @@
+{
+  "id": "fib_L2",
+  "title": "斐波那契数列（递归）",
+  "description": "实现 int fib(int n)：先想清递归终止条件，再写出完整递归函数并通过隐藏测试。",
+  "checkpoints": [
+    {
+      "id": "cp1",
+      "title": "递归边界条件",
+      "guide_question": "斐波那契递归的终止条件是什么？n 为 0 和 1 时分别应返回什么？",
+      "gates": [
+        {
+          "type": "regex",
+          "rule": "(n\\s*<=?\\s*[01]|边界|base\\s*case).{0,20}(返回|return)",
+          "weight": 0.4
+        },
+        {
+          "type": "ai_socratic",
+          "rubric": "回答需点出 n<=1 时直接返回 n，否则递归会无限下钻导致栈溢出",
+          "weight": 0.6
+        }
+      ],
+      "pass_threshold": 0.7,
+      "unlock": {
+        "editorRegion": [5, 15],
+        "hints": ["提示：int fib(int n) 先写 n<=1 的出口"]
+      },
+      "on_fail": {
+        "ai_followup": "如果 n=0 时函数仍在调用 fib(n-1)，会发生什么？"
+      }
+    },
+    {
+      "id": "cp2",
+      "title": "递归实现与隐藏测试",
+      "guide_question": "写出完整的 fib 递归函数，并跑通隐藏测试",
+      "gates": [
+        {
+          "type": "test_pass",
+          "tests": "hidden_tests/fib_2.json",
+          "weight": 1.0
+        }
+      ],
+      "pass_threshold": 1.0,
+      "unlock": {
+        "editorRegion": [16, 30]
+      },
+      "on_fail": {
+        "valgrind_hint": true
+      }
+    }
+  ]
+}
