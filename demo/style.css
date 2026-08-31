@@ -145,6 +145,18 @@ html, body {
   cursor: not-allowed;
 }
 
+body.teacher-mode .checkpoint-card.locked {
+  opacity: 1;
+  cursor: pointer;
+  border-color: var(--info);
+  border-style: dashed;
+}
+
+.checkpoint-card.selected {
+  outline: 2px solid var(--luna-orange);
+  outline-offset: 2px;
+}
+
 .checkpoint-header {
   display: flex;
   align-items: center;

@@ -247,6 +247,18 @@ function selectCheckpoint(checkpoint) {
   });
   document.querySelector(`.checkpoint-card[data-id="${checkpoint.id}"]`)?.classList.add('selected');
   
+  // 教师/学生都滚动定位到对应代码区
+  const targetRange = AppState.lockRanges.find(r => r.gateId === checkpoint.id);
+  if (targetRange && AppState.editor) {
+    AppState.editor.revealLineInCenter(targetRange.startLine);
+    // 短暂高亮
+    const hl = AppState.editor.deltaDecorations([], [{
+      range: new monaco.Range(targetRange.startLine, 1, targetRange.endLine, 1),
+      options: { isWholeLine: true, className: 'locked-line', inlineClassName: '' }
+    }]);
+    setTimeout(() => AppState.editor.deltaDecorations(hl, []), 1200);
+  }
+  
   // 如果是 AI Socratic 类型，显示引导问题
   if (checkpoint.type === 'ai_socratic') {
     addAIMessage(checkpoint.guideQuestion);
@@ -663,22 +675,27 @@ function toggleTeacherView() {
     
     toggle.classList.add('active');
     hiddenTestsPanel.style.display = 'block';
+    document.body.classList.add('teacher-mode');
     
     // 显示隐藏测试
     renderHiddenTests();
     
-    // 移除锁定装饰
+    // 移除锁定装饰并刷新卡片让 locked 变可点
     updateLockedRegions();
+    renderCheckpoints();
     
     // 更新锁定状态文本
     if (lockStatus) {
       lockStatus.textContent = '🔓 教师模式：全部区域已解锁';
     }
     
-    // 确保编辑器可编辑
+    // 确保编辑器可编辑并滚动到第一关
     AppState.editor.updateOptions({ readOnly: false });
+    if (AppState.checkpoints.length > 1) {
+      AppState.editor.revealLineInCenter(14);
+    }
     
-    showToast('info', '教师视角', '已切换到教师视角，可以查看所有内容');
+    showToast('info', '教师视角', '已切换到教师视角，可以查看所有内容（点击任意关卡可定位）');
   } else {
     // 恢复学生之前的代码（若无则回退到模板）
     const prevCode = AppState.teacherPrevCode || AppState.task.templateCode;
@@ -687,9 +704,11 @@ function toggleTeacherView() {
     
     toggle.classList.remove('active');
     hiddenTestsPanel.style.display = 'none';
+    document.body.classList.remove('teacher-mode');
     
-    // 恢复锁定装饰
+    // 恢复锁定装饰并刷新卡片
     updateLockedRegions();
+    renderCheckpoints();
     
     // 恢复锁定状态文本
     if (lockStatus) {
