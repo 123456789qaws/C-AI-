@@ -292,3 +292,44 @@ pnpm lint
 - Task 6: Add Monaco Editor integration
 - Task 7: Add Luna AI chat panel implementation
 - Task 8: Add file tree with actual file operations
+
+## Task 14: 定义 AIProvider 抽象与网关壳
+
+### Date: 2026-08-31
+
+### Summary
+Successfully built the AI provider abstraction and the Socratic judge gateway shell:
+- src/lib/providers/ai/types.ts - AIProvider interface (complete(prompt, opts))
+- deepseek.ts (OpenAI-compatible), qwen.ts (QWEN_URL local), mock.ts (fixed Socratic JSON), index.ts factory on AI_PROVIDER
+- src/lib/ai/prompt.ts - SocraticSystemPrompt with hard rules + buildJudgePrompt(userMsg, codeSnippet)
+- src/app/api/ai/socratic/route.ts - POST shell: auth placeholder + rate-limit placeholder + input escape + robust JSON.parse fallback
+
+### Key Decisions
+1. **Single AIProvider interface** - All providers implement complete(prompt, opts?) returning {text, usage:{tokens}}; route code never touches provider internals.
+2. **server-only in every provider file** - First line import; index.ts also server-only. Verified prompt/keys never reach .next/static.
+3. **mock returns fixed JSON string** - MOCK_SOCRATIC_JSON exported constant; mock complete() takes zero params (fewer params still satisfies interface, avoids no-unused-vars since .eslintrc has no argsIgnorePattern).
+4. **Robust JSON extraction** - Model output may be wrapped in ```json fences or prefixed text; parseJudgeResult tries direct parse, fenced extraction, first-brace extraction, then falls back to {pass:false, reply:rawText, reason:'parse-failed'}.
+5. **Input escape** - Strip control chars (\u0000-\u0008 etc.), trim, cap lengths (answer 4000 / code 20000 / history 20 entries).
+6. **Placeholders not implementations** - AUTH_ENABLED=false + RATE_LIMIT_ENABLED=false consts with TODO comments; task 15 owns rate-limit/circuit-breaker.
+
+### Verification Results
+- ✅ pnpm lint - "No ESLint warnings or errors"
+- ✅ pnpm build - Compiled successfully; /api/ai/socratic registered as dynamic route (ƒ)
+- ✅ No system prompt / API key strings in .next/static (Select-String check)
+
+### Gotchas
+1. **Next route files can only export HTTP methods** - auth task's route exported a helper (extractBearerToken), failing next build type-check (checkFields constraint). Route helpers must be non-exported or live in lib/.
+2. **pnpm 10 supply-chain check on build** - pnpm build runs deps status check; a placeholder string "esbuild: set this to true or false" in pnpm-workspace.yaml allowBuilds caused ERR_PNPM_IGNORED_BUILDS. Must be a real boolean.
+3. **Parallel task file conflicts** - Other in-flight tasks (auth/judge) actively rewrite files; lint gate required prettier-fixing their files (formatting-only, not committed). Commit only own paths via git add <specific files>.
+4. **Unused params are lint errors** - .eslintrc has no argsIgnorePattern; underscores do NOT silence no-unused-vars. Omit params entirely where the interface allows.
+
+### Files Created/Modified
+- src/lib/providers/ai/types.ts, deepseek.ts, qwen.ts, mock.ts (rewritten), index.ts
+- src/lib/ai/prompt.ts
+- src/app/api/ai/socratic/route.ts
+- .omo/evidence/luna-for-c-mvp-scaffold/task-14-ai.md
+
+### Next Steps
+- Task 15: rate limit / circuit breaker on the socratic route
+- Task 9: real judge runners behind getJudgeProvider
+- Persist AiInteractionLog + CheckpointProgress once auth lands

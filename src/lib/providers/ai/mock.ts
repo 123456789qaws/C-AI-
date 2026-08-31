@@ -1,42 +1,27 @@
 import 'server-only';
 
 /**
- * Mock AI Provider - for testing and development
- * This provider returns deterministic responses without calling external APIs.
+ * Mock AI Provider —— 测试/开发用。
+ * 返回固定（确定性）的 Socratic 判题 JSON 字符串，不发任何外部请求，
+ * 便于单元测试与本地无密钥开发。
  */
+import type { AIProvider } from './types';
 
-export interface MockAIConfig {
-  delay?: number;
-  responseTemplate?: string;
-}
+/** 固定 Socratic 判题 JSON（text 字段内容），测试断言以此为准 */
+export const MOCK_SOCRATIC_JSON = JSON.stringify({
+  pass: true,
+  confidence: 0.9,
+  reply: '答得很好！那么顺着这个思路：如果这块内存分配后忘了释放，程序结束时会发生什么？',
+  reason: 'mock provider: fixed Socratic response for tests',
+});
 
-export const mockAIProvider = {
-  name: 'mock' as const,
+export const mockAIProvider: AIProvider = {
+  name: 'mock',
 
-  async generateResponse(prompt: string, config: MockAIConfig = {}): Promise<string> {
-    const { delay = 100, responseTemplate = 'Mock response for: {prompt}' } = config;
-
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, delay));
-
-    return responseTemplate.replace('{prompt}', prompt.slice(0, 100));
-  },
-
-  async judgeCode(code: string): Promise<{
-    passed: boolean;
-    score: number;
-    feedback: string;
-  }> {
-    // Simple mock judge - passes if code contains 'function' or 'const'
-    const hasCode = /function|const|let|var|=>/.test(code);
+  async complete(): Promise<{ text: string; usage: { tokens: number } }> {
     return {
-      passed: hasCode,
-      score: hasCode ? 100 : 0,
-      feedback: hasCode
-        ? 'Mock judge: Code structure looks valid'
-        : 'Mock judge: No code structure detected',
+      text: MOCK_SOCRATIC_JSON,
+      usage: { tokens: 0 },
     };
   },
 };
-
-export type MockAIProvider = typeof mockAIProvider;
