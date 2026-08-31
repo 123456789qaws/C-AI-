@@ -385,3 +385,41 @@ Successfully built the AI provider abstraction and the Socratic judge gateway sh
 - Task 15: rate limit / circuit breaker on the socratic route
 - Task 9: real judge runners behind getJudgeProvider
 - Persist AiInteractionLog + CheckpointProgress once auth lands
+
+## Task 15: AI 限流/熔断/日志脱敏与 5 次上限
+
+### Date: 2026-08-31
+
+### Summary
+Wired the socratic route's security layer (replacing Task 14's placeholders):
+- src/lib/ai/rateLimit.ts - in-memory Map bucket per `${studentId}:${checkpointId}`, AI_RATE_LIMIT=5 per 1h window; 6th call → 429 {error, retryAfterSeconds, hint:'请联系教师放行'} + Retry-After header; lazy sweep of expired buckets when map >1024 entries
+- src/lib/ai/guard.ts - sanitizePrompt (control-char strip + injection pattern filter), redactSecrets (sk-* and key=/token= masking), logAiUsage (in-process token counter, logs provider/tokens/total/checkpointId only)
+- route.ts - rate limit check after input validation; module-level consecutiveProviderFailures circuit breaker (3 failures → mock fallback, success resets); sanitize applied to answer+history but NOT code (avoid corrupting legit source); redactSecrets on all provider error logs; response includes provider + remaining
+
+### Key Decisions
+1. **In-memory limit, DB optional** - Map-based counting is enough for single instance; commented Redis/DB persistence path for multi-instance. Task explicitly allows this.
+2. **Circuit breaker in route module state** - Not a class: a module-level counter + threshold const; trips on 3rd consecutive failure (that request gets mock fallback), stays open until a mock success resets it (half-open).
+3. **Code snippets excluded from injection filtering** - Only escapeInput (control chars + truncation) on codeSnippet; injection patterns like 'system:' could legitimately appear in C strings. Answer + history get full sanitizePrompt.
+4. **studentId from body for MVP** - `body.studentId ?? 'anonymous'`, capped at 128 chars, clearly commented as Task 17's JWT replacement point.
+
+### Verification Results
+- ✅ Rate limit functional: 5×200 (remaining 4→0), 6th → 429 body `{"error":"rate_limited","retryAfterSeconds":3600,"hint":"请联系教师放行"}`
+- ✅ Circuit breaker functional (deepseek without key): 502, 502, then 3rd failure → 200 provider=mock; next call stays mock; after mock success counter resets (next real attempt → 502)
+- ✅ pnpm lint exit 0 ("No ESLint warnings or errors"), pnpm build exit 0 (/api/ai/socratic registered ƒ)
+- ✅ Targeted eslint + tsc --noEmit on own 3 files clean
+
+### Gotchas
+1. **Mock complete() needs an arg through the interface type** - mockAIProvider typed as AIProvider makes `complete()` demand 1-2 args at call sites even though the impl takes 0. Pass a dummy string ('circuit-open fallback').
+2. **for...of over Map fails with downlevel target** - tsconfig target < ES2015 → use `buckets.forEach((bucket, key) => ...)` instead of `for (const [k,v] of map)`.
+3. **Parallel task dirtying lint gate again** - `pnpm lint` failed on src/lib/providers/judge/docker.ts (task 9 in-flight, prettier-only errors). Prettier-fixed it formatting-only, did NOT commit; committed only own 3 files.
+4. **Start-Process can't launch pnpm directly** - pnpm is a .cmd shim on Windows; use `Start-Process cmd.exe -ArgumentList "/c pnpm dev"`. Also port 3100 had a stale parallel-task dev server running old code - test on a fresh port (3157/3158/3159).
+5. **PS curl.exe body mangling** - `curl.exe -d $body` in PowerShell silently corrupts the JSON → 400 invalid_json. Use Invoke-WebRequest, and for 429 bodies read `$_.Exception.Response.GetResponseStream()`.
+
+### Files Created/Modified
+- src/lib/ai/rateLimit.ts (new), src/lib/ai/guard.ts (new)
+- src/app/api/ai/socratic/route.ts (rewritten security layer)
+- .omo/evidence/luna-for-c-mvp-scaffold/task-15-ai.md
+
+### Next Steps
+- Task 17: replace body.studentId with JWT-derived identity; persist AiInteractionLog/CheckpointProgress
+- Task 16: valgrind followup (untouched)

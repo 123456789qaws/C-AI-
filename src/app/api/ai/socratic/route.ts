@@ -1,34 +1,54 @@
 import { NextResponse } from 'next/server';
 
 import { aiProvider } from '@/lib/providers/ai';
+import { mockAIProvider } from '@/lib/providers/ai/mock';
 import { SocraticSystemPrompt, buildJudgePrompt } from '@/lib/ai/prompt';
+import { checkRateLimit } from '@/lib/ai/rateLimit';
+import { sanitizePrompt, redactSecrets, logAiUsage } from '@/lib/ai/guard';
 
 /**
- * POST /api/ai/socratic —— 苏格拉底式判题网关壳。
+ * POST /api/ai/socratic —— 苏格拉底式判题网关。
  *
- * ⚠️ 任务边界：
- * - 鉴权：占位（后续接入 JWT / 会话校验）
- * - 限流 / 熔断：占位（Task 15 实现，此处不实现）
+ * 安全层（Task 15）：
+ * - 限流：每个 (studentId, checkpointId) 每窗口最多 AI_RATE_LIMIT 次调用，
+ *   超限返回 429 + 「请联系教师放行」提示
+ * - 熔断：真实 provider 连续 3 次失败后降级为 mock，成功一次自动复位
+ * - 注入过滤：sanitizePrompt 清理控制字符与注入特征串
+ * - 日志脱敏：redactSecrets 处理错误日志，绝不回传密钥
+ * - token 记账：logAiUsage 累计用量
+ *
+ * ⚠️ 鉴权仍为占位（Task 17 接入 JWT）；MVP 阶段 studentId 取自请求体，
+ * 缺省 'anonymous'。接入 JWT 后请删除该字段直读逻辑。
  */
 
 // TODO(auth): 接入真实鉴权（JWT），校验请求者身份并写入 AiInteractionLog.studentId
 const AUTH_ENABLED = false; // 占位开关，当前直接放行
 
-// TODO(task-15): 接入 rate limit / circuit breaker，此处仅为占位
-const RATE_LIMIT_ENABLED = false;
+/** 熔断阈值：真实 provider 连续失败该次数后，降级为 mock */
+const CIRCUIT_OPEN_THRESHOLD = 3;
 
 const MAX_STUDENT_ANSWER_LEN = 4000;
 const MAX_CODE_SNIPPET_LEN = 20000;
 const MAX_HISTORY_LEN = 20;
+const MAX_STUDENT_ID_LEN = 128;
+
+/**
+ * 熔断器状态（模块级，进程内）：真实 provider 连续失败计数。
+ * 达到阈值后本次请求直接走 mock，后续请求也跳过真实 provider，
+ * 直到一次成功将计数复位。
+ */
+let consecutiveProviderFailures = 0;
 
 interface SocraticRequestBody {
   checkpointId?: string;
+  /** MVP：前端显式传入学生标识；Task 17 改为从 JWT 解析 */
+  studentId?: string;
   studentAnswer?: string;
   codeSnippet?: string;
   history?: Array<{ role?: string; content?: string }>;
 }
 
-/** 输入转义：去控制字符、去首尾空白、截断超长，防止提示词注入/超大请求 */
+/** 输入转义：去控制字符、去首尾空白、截断超长（代码片段不做注入过滤，防误伤源码） */
 function escapeInput(input: string, maxLen: number): string {
   return input
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
@@ -92,12 +112,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  // 限流占位
-  if (RATE_LIMIT_ENABLED) {
-    // TODO(task-15): 检查限流窗口，超限返回 429
-    return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
-  }
-
   let body: SocraticRequestBody;
   try {
     body = (await request.json()) as SocraticRequestBody;
@@ -105,18 +119,41 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
   }
 
-  const studentAnswer = escapeInput(body.studentAnswer ?? '', MAX_STUDENT_ANSWER_LEN);
+  // 学生身份：MVP 从请求体读取（Task 17 接入 JWT 后改为从 token 解析），缺省 anonymous
+  const studentId = escapeInput(body.studentId ?? '', MAX_STUDENT_ID_LEN) || 'anonymous';
+  const checkpointId = escapeInput(body.checkpointId ?? '', 256) || 'unknown';
+
+  // 注入过滤 + 转义 + 截断
+  const studentAnswer = sanitizePrompt(body.studentAnswer ?? '')
+    .trim()
+    .slice(0, MAX_STUDENT_ANSWER_LEN);
   if (!studentAnswer) {
     return NextResponse.json({ error: 'studentAnswer_required' }, { status: 400 });
   }
 
+  // 每 checkpoint 限流：第 AI_RATE_LIMIT+1 次调用返回 429，提示联系教师
+  const rate = checkRateLimit(studentId, checkpointId);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      {
+        error: 'rate_limited',
+        retryAfterSeconds: rate.retryAfterSeconds,
+        hint: '请联系教师放行',
+      },
+      { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+    );
+  }
+
   const codeSnippet = escapeInput(body.codeSnippet ?? '', MAX_CODE_SNIPPET_LEN);
 
-  // 历史对话折叠进用户消息（转义 + 截断条数）
+  // 历史对话折叠进用户消息（注入过滤 + 转义 + 截断条数）
   const historyLines = (body.history ?? [])
     .slice(-MAX_HISTORY_LEN)
     .map(
-      (h) => `${h.role === 'assistant' ? '助教' : '学生'}：${escapeInput(h.content ?? '', 2000)}`
+      (h) =>
+        `${h.role === 'assistant' ? '助教' : '学生'}：${sanitizePrompt(h.content ?? '')
+          .trim()
+          .slice(0, 2000)}`
     )
     .join('\n');
 
@@ -124,24 +161,51 @@ export async function POST(request: Request) {
     ? `${historyLines}\n\n${buildJudgePrompt(studentAnswer, codeSnippet)}`
     : buildJudgePrompt(studentAnswer, codeSnippet);
 
+  // 熔断器：连续失败达到阈值时跳过真实 provider，直接走 mock 兜底
+  let completion: { text: string; usage: { tokens: number } };
+  let providerUsed: string;
   try {
-    const completion = await aiProvider.complete(userPrompt, {
-      system: SocraticSystemPrompt,
-    });
-
-    const judge = parseJudgeResult(completion.text, 'provider output was not valid judge JSON');
-
-    // TODO(task-15+): 持久化 AiInteractionLog / 更新 CheckpointProgress（依赖鉴权落地）
-
-    return NextResponse.json({
-      pass: judge.pass,
-      confidence: judge.confidence,
-      reply: judge.reply,
-      reason: judge.reason,
-    });
+    if (consecutiveProviderFailures >= CIRCUIT_OPEN_THRESHOLD) {
+      completion = await mockAIProvider.complete('circuit-open fallback');
+      providerUsed = mockAIProvider.name;
+      console.warn('[socratic] circuit open, serving mock response');
+    } else {
+      completion = await aiProvider.complete(userPrompt, {
+        system: SocraticSystemPrompt,
+      });
+      providerUsed = aiProvider.name;
+    }
+    consecutiveProviderFailures = 0; // 成功即复位熔断计数
   } catch (err) {
-    // 熔断/重试在 Task 15 实现；此处只做失败回执
-    console.error('[socratic] provider error:', err);
-    return NextResponse.json({ error: 'ai_provider_error' }, { status: 502 });
+    consecutiveProviderFailures += 1;
+    // 日志脱敏：绝不把密钥/原文写进日志
+    console.error(
+      '[socratic] provider error:',
+      redactSecrets(err instanceof Error ? err.message : String(err))
+    );
+    if (consecutiveProviderFailures >= CIRCUIT_OPEN_THRESHOLD) {
+      // 第 3 次连续失败：触发熔断，本次降级为 mock
+      completion = await mockAIProvider.complete('circuit-breaker fallback');
+      providerUsed = mockAIProvider.name;
+      console.warn('[socratic] circuit breaker tripped, fallback to mock');
+    } else {
+      return NextResponse.json({ error: 'ai_provider_error' }, { status: 502 });
+    }
   }
+
+  const judge = parseJudgeResult(completion.text, 'provider output was not valid judge JSON');
+
+  // token 记账（进程内累计；Task 17 后可落 AiInteractionLog.tokens）
+  logAiUsage({ provider: providerUsed, tokens: completion.usage.tokens, checkpointId });
+
+  // TODO(task-17): 持久化 AiInteractionLog / 更新 CheckpointProgress（依赖鉴权落地）
+
+  return NextResponse.json({
+    pass: judge.pass,
+    confidence: judge.confidence,
+    reply: judge.reply,
+    reason: judge.reason,
+    provider: providerUsed,
+    remaining: rate.remaining,
+  });
 }
