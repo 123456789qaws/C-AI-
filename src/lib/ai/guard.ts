@@ -52,6 +52,43 @@ export function redactSecrets(text: string): string {
     );
 }
 
+/** 苏格拉底硬规则兜底文案（模型违规输出完整函数体时整段替换） */
+export const SOCRATIC_HARD_RULE_REPLACEMENT =
+  '我不能给出完整实现，请先思考：这段代码里哪个指针可能变成了 NULL？它在哪一行被解引用了？你打印过它的地址吗？';
+
+/**
+ * 网关层兜底：模型回复一旦包含完整函数体，整段替换为引导式提问，
+ * 绝不让完整实现流到学生侧。启发式判定：
+ * 1. 围栏代码块（```）内非空行数 > 5 → 视为完整函数体
+ * 2. 无围栏时，含 '{' 的行数 > 5 → 视为完整函数体特征
+ */
+export function enforceSocraticHardRule(reply: string): string {
+  if (!reply) {
+    return reply;
+  }
+
+  // 1) 围栏代码块：任一代码块非空行数 > 5 即违规
+  const fencedBlocks = reply.match(/```[^\n]*\n[\s\S]*?```/g) ?? [];
+  for (const block of fencedBlocks) {
+    const body = block
+      .replace(/^```[^\n]*\n?/, '')
+      .replace(/\n?```$/, '')
+      .trim();
+    const lineCount = body.split(/\r?\n/).filter((l) => l.trim().length > 0).length;
+    if (lineCount > 5) {
+      return SOCRATIC_HARD_RULE_REPLACEMENT;
+    }
+  }
+
+  // 2) 无围栏兜底：>5 个含 '{' 的行（函数体特征）
+  const braceLineCount = reply.split(/\r?\n/).filter((l) => l.includes('{')).length;
+  if (braceLineCount > 5) {
+    return SOCRATIC_HARD_RULE_REPLACEMENT;
+  }
+
+  return reply;
+}
+
 // —— token 记账（进程内累计，供成本核算） ——
 let totalTokens = 0;
 

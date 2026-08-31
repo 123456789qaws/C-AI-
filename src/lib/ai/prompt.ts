@@ -28,8 +28,14 @@ export const SocraticSystemPrompt = `你是一名 C 语言苏格拉底式助教�
  * 组装单次判题的用户消息。
  * @param userMsg 学生当前回答
  * @param codeSnippet 学生当前代码片段（可选）
+ * @param aiFollowup on_fail.ai_followup —— 教师/系统追加追问（可选），
+ *   存在时追加「追加追问：...」，要求模型本轮优先以该追问发问
  */
-export function buildJudgePrompt(userMsg: string, codeSnippet?: string): string {
+export function buildJudgePrompt(
+  userMsg: string,
+  codeSnippet?: string,
+  aiFollowup?: string
+): string {
   const parts: string[] = [];
 
   if (codeSnippet && codeSnippet.trim().length > 0) {
@@ -37,6 +43,10 @@ export function buildJudgePrompt(userMsg: string, codeSnippet?: string): string 
   }
 
   parts.push(`学生回答：${userMsg.trim()}`);
+
+  if (aiFollowup && aiFollowup.trim().length > 0) {
+    parts.push(`追加追问：${aiFollowup.trim()}`);
+  }
 
   return parts.join('\n\n');
 }

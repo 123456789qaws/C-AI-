@@ -477,3 +477,42 @@ Wired the socratic route's security layer (replacing Task 14's placeholders):
 ### Next Steps
 - Task 17: replace body.studentId with JWT-derived identity; persist AiInteractionLog/CheckpointProgress
 - Task 16: valgrind followup (untouched)
+
+## Task 16: Socratic 追问与 valgrind 线索注入
+
+### Date: 2026-08-31
+
+### Summary
+Wired crash-failure context into the Socratic gateway:
+- src/lib/ai/context.ts (new) - buildSocraticContext (RE + memoryTask/valgrindHint → inject sanitized 1-2 line crash hint, instruct model to ask "指针地址是多少/哪一行变成 NULL", forbid raw stack/fix) + extractValgrindSummary (valgrind raw output → "Invalid write of size 4（访问地址为 NULL，空指针）；崩溃点：main (test.c:6)")
+- src/lib/ai/prompt.ts - buildJudgePrompt gained optional aiFollowup param → appends "追加追问：..."
+- src/lib/ai/guard.ts - enforceSocraticHardRule: any fenced code block >5 non-empty lines OR >5 '{'-lines → whole reply replaced with "我不能给出完整实现，请先思考：..." (Socratic question)
+- route.ts - accepts optional body {valgrindHint?, aiFollowup?, judgeResult?:{status,stderr,valgrind?}, checkpointMeta?:{title?,memoryTask?}}, sanitizes each, passes to buildSocraticContext, applies reply guard
+
+### Key Decisions
+1. **Only summaries reach the model** - raw valgrind output is capped (20000 chars) but NEVER sent to the model; extractValgrindSummary produces the 1-2 line digest, satisfying "not the raw answer".
+2. **Trigger condition** - hint injection only when status==='RE' AND (memoryTask OR valgrindHint OR valgrind output present); WA/TLE or bare RE stays clean.
+3. **Guard at the gateway, not just the prompt** - SocraticSystemPrompt already says "绝不输出>5行完整函数"; enforceSocraticHardRule is the second line of defense applied to every parsed reply (mock included).
+4. **context.ts stays dependency-light** - imports only ./prompt, re-declares JudgeFailureContext locally (decoupled from judge contract), so a standalone tsx check runs without Next.js.
+
+### Verification Results
+- ✅ pnpm build / pnpm lint / tsc --noEmit all exit 0
+- ✅ tsx unit check: 21/21 PASS (summary content+leak-freedom, injection triggers, followup append, >5-line replacement, ≤5-line kept)
+- ✅ Functional (real deepseek provider): segfault+valgrind body → reply "你打印过 p 的地址吗？它当前是 NULL，那这行赋值操作试图往哪个地址写？" (Socratic, no fix code); aiFollowup "这块内存谁负责释放？" → model asked exactly that
+- ✅ No raw valgrind/stack leaks into context (asserted in unit check)
+
+### Gotchas
+1. **Valgrind lines keep `==pid==` prefix** - locate error/location/address lines with substring matches, strip prefix only from the error text.
+2. **PowerShell console GBK mojibake** - decode Invoke-WebRequest body via UTF8.GetString($r.RawContentStream.ToArray()) + [Console]::OutputEncoding=UTF8 for clean CJK evidence.
+3. **Real deepseek key IS in .env** - Task 15's 502→mock circuit tests no longer reproduce; real replies arrive on first call. Use fresh studentId/checkpointId pairs for rate-limit-sensitive tests.
+4. **tsx check script kept in temp dir** - not committed to the repo; path C:\Users\Lenovo\AppData\Local\Temp\opencode\task16-check.ts (absolute imports into src/lib/ai).
+
+### Files Created/Modified
+- src/lib/ai/context.ts (new)
+- src/lib/ai/prompt.ts, src/lib/ai/guard.ts
+- src/app/api/ai/socratic/route.ts
+- .omo/evidence/luna-for-c-mvp-scaffold/task-16-ai.md
+
+### Next Steps
+- Task 18: wire on_fail.ai_followup / valgrind_hint from checkpoint config into the chat client
+- Task 17: JWT identity → persist AiInteractionLog / CheckpointProgress

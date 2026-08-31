@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 
 import { aiProvider } from '@/lib/providers/ai';
 import { mockAIProvider } from '@/lib/providers/ai/mock';
-import { SocraticSystemPrompt, buildJudgePrompt } from '@/lib/ai/prompt';
+import { SocraticSystemPrompt } from '@/lib/ai/prompt';
+import { buildSocraticContext } from '@/lib/ai/context';
 import { checkRateLimit } from '@/lib/ai/rateLimit';
-import { sanitizePrompt, redactSecrets, logAiUsage } from '@/lib/ai/guard';
+import { sanitizePrompt, redactSecrets, logAiUsage, enforceSocraticHardRule } from '@/lib/ai/guard';
 
 /**
  * POST /api/ai/socratic —— 苏格拉底式判题网关。
@@ -16,6 +17,11 @@ import { sanitizePrompt, redactSecrets, logAiUsage } from '@/lib/ai/guard';
  * - 注入过滤：sanitizePrompt 清理控制字符与注入特征串
  * - 日志脱敏：redactSecrets 处理错误日志，绝不回传密钥
  * - token 记账：logAiUsage 累计用量
+ *
+ * Socratic 追问（Task 16）：
+ * - 接受可选 judgeResult / valgrindHint / checkpointMeta / aiFollowup
+ * - RE + 内存线索 → buildSocraticContext 注入脱敏崩溃摘要，引导模型追问定位
+ * - 回复经 enforceSocraticHardRule 兜底：完整函数体（>5 行）绝不流到学生侧
  *
  * ⚠️ 鉴权仍为占位（Task 17 接入 JWT）；MVP 阶段 studentId 取自请求体，
  * 缺省 'anonymous'。接入 JWT 后请删除该字段直读逻辑。
@@ -46,6 +52,18 @@ interface SocraticRequestBody {
   studentAnswer?: string;
   codeSnippet?: string;
   history?: Array<{ role?: string; content?: string }>;
+  /** 可选：上次判题结果（status RE 时可能注入崩溃线索，用于苏格拉底追问） */
+  judgeResult?: {
+    status?: string;
+    stderr?: string;
+    valgrind?: string;
+  };
+  /** 可选：valgrind 提示开关（疑似内存问题） */
+  valgrindHint?: boolean;
+  /** 可选：on_fail.ai_followup —— 教师/系统追加追问 */
+  aiFollowup?: string;
+  /** 可选：checkpoint 元信息（memoryTask 内存专题等） */
+  checkpointMeta?: { title?: string; memoryTask?: boolean };
 }
 
 /** 输入转义：去控制字符、去首尾空白、截断超长（代码片段不做注入过滤，防误伤源码） */
@@ -146,6 +164,29 @@ export async function POST(request: Request) {
 
   const codeSnippet = escapeInput(body.codeSnippet ?? '', MAX_CODE_SNIPPET_LEN);
 
+  // 可选：on_fail.ai_followup 追加追问（注入过滤 + 截断）
+  const aiFollowup = sanitizePrompt(body.aiFollowup ?? '')
+    .trim()
+    .slice(0, 2000);
+
+  // 可选：上次判题结果 —— 脱敏 + 截断。
+  // 注意：valgrind 原始输出绝不直接进模型，context.ts 只抽取 1-2 行摘要。
+  const judgeResult = body.judgeResult
+    ? {
+        status: escapeInput(body.judgeResult.status ?? '', 16),
+        stderr: escapeInput(body.judgeResult.stderr ?? '', 4000),
+        valgrind: escapeInput(body.judgeResult.valgrind ?? '', 20000),
+      }
+    : undefined;
+
+  const valgrindHint = body.valgrindHint === true;
+  const checkpointMeta = body.checkpointMeta
+    ? {
+        title: escapeInput(body.checkpointMeta.title ?? '', 256),
+        memoryTask: body.checkpointMeta.memoryTask === true,
+      }
+    : undefined;
+
   // 历史对话折叠进用户消息（注入过滤 + 转义 + 截断条数）
   const historyLines = (body.history ?? [])
     .slice(-MAX_HISTORY_LEN)
@@ -157,9 +198,17 @@ export async function POST(request: Request) {
     )
     .join('\n');
 
-  const userPrompt = historyLines
-    ? `${historyLines}\n\n${buildJudgePrompt(studentAnswer, codeSnippet)}`
-    : buildJudgePrompt(studentAnswer, codeSnippet);
+  // 苏格拉底上下文：含 RE 崩溃线索（脱敏）与 ai_followup 追加追问
+  const socraticContext = buildSocraticContext({
+    studentAnswer,
+    codeSnippet,
+    judgeResult,
+    valgrindHint,
+    checkpointMeta,
+    aiFollowup,
+  });
+
+  const userPrompt = historyLines ? `${historyLines}\n\n${socraticContext}` : socraticContext;
 
   // 熔断器：连续失败达到阈值时跳过真实 provider，直接走 mock 兜底
   let completion: { text: string; usage: { tokens: number } };
@@ -195,6 +244,9 @@ export async function POST(request: Request) {
 
   const judge = parseJudgeResult(completion.text, 'provider output was not valid judge JSON');
 
+  // 网关兜底：模型违规输出完整函数体（>5 行代码）时，替换为引导式提问
+  const reply = enforceSocraticHardRule(judge.reply);
+
   // token 记账（进程内累计；Task 17 后可落 AiInteractionLog.tokens）
   logAiUsage({ provider: providerUsed, tokens: completion.usage.tokens, checkpointId });
 
@@ -203,7 +255,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     pass: judge.pass,
     confidence: judge.confidence,
-    reply: judge.reply,
+    reply,
     reason: judge.reason,
     provider: providerUsed,
     remaining: rate.remaining,
