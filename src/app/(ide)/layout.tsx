@@ -13,9 +13,7 @@ export default function IDELayout({
       </aside>
 
       {/* Main editor area - Monaco placeholder 1fr */}
-      <main className="flex-1 min-w-0 overflow-hidden bg-background">
-        {children}
-      </main>
+      <main className="flex-1 min-w-0 overflow-hidden bg-background">{children}</main>
 
       {/* Right sidebar - Luna AI 360px */}
       <aside className="flex-shrink-0 w-[360px] border-l border-border bg-card">
@@ -28,6 +26,9 @@ export default function IDELayout({
           </div>
         </div>
       </aside>
+
+      {/* Toaster placeholder for notifications */}
+      <div id="toaster-placeholder" className="fixed bottom-4 right-4 z-50" aria-live="polite" />
     </div>
   );
 }
