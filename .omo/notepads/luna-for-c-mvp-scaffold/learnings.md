@@ -478,6 +478,86 @@ Wired the socratic route's security layer (replacing Task 14's placeholders):
 - Task 17: replace body.studentId with JWT-derived identity; persist AiInteractionLog/CheckpointProgress
 - Task 16: valgrind followup (untouched)
 
+## Task 10: 判题限流与安全加固 + 隐藏测试执行器
+
+### Date: 2026-08-31
+
+### Summary
+Hardened POST /api/judge/run and added the hidden-test batch executor:
+- src/lib/judge/harness.ts - `runHiddenTests(code, tests, options?)`: runs one C
+  submission against a batch of {stdin, expected, description?} cases via the
+  JudgeProvider, compares trimmed stdout vs trimmed expected, stops at the
+  FIRST failing case and returns `firstFailure.hint` as a NATURE description of
+  the mistake. Expected values are never exposed (no field carries them;
+  `expectedHidden:true` is explicit so serializers assert instead of assume).
+  Exports MAX_OUTPUT_BYTES (1 MB) shared with the route.
+- route.ts - IP rate limit 10/min (in-memory fixed window, lazy sweep), p-limit
+  concurrency 3 (excess queues, 4th waits), 1 MB output cap per stream with
+  truncation marker, network-ban confirmation comment (docker --network=none).
+
+### Key Decisions
+1. **Rate limit BEFORE JSON parse** - unlike the socratic route (task 15) which
+   checks after validation, here every request consumes a token: a flood of
+   malformed JSON cannot bypass the quota to reach the expensive judge path.
+2. **p-limit queue, not reject** - the 4th concurrent request WAITS instead of
+   getting 429; p-limit's queue is the throttling (verified: 3×~2s + 1×~6s
+   wall for 4 concurrent 2s jobs).
+3. **"Compile once" = CE short-circuit** - the provider compiles on every
+   run() call by contract, so the harness cannot truly compile once across
+   cases; it short-circuits on the first CE (compilation is deterministic per
+   source) and skips re-running gcc for the rest. A provider batch API is
+   future work if per-case compile cost matters.
+4. **Hint = nature, never answer** - WA hints embed the case `description`
+   ("「n=0 的边界」的输出与期望不符..."), RE mentions the signal + likely
+   cause, TLE mentions infinite loop / complexity, CE reuses the compiler's
+   own first diagnostic line. Smoke asserts the raw expected string appears
+   NOWHERE in the serialized report.
+5. **XFF for IP** - first x-forwarded-for hop (proxy convention); spoofable,
+   documented as anti-accident-flood only. Lazy sweep when bucket map > 1024.
+
+### Verification Results
+- ✅ pnpm build - Compiled successfully; /api/judge/run registered ƒ
+- ✅ pnpm lint - "No ESLint warnings or errors"
+- ✅ Harness smoke (scripts/smoke-judge-harness.ts): 28/28 assertions with a
+  mock provider AND a real MinGW gcc batch (3 AC + 1 WA at case-4, hint carries
+  「奇偶判断」, actual=odd exposed, expected never leaked)
+- ✅ Route smoke (scripts/judge-route-smoke.mjs): T1 10×200 then 429
+  RATE_LIMITED + Retry-After=57; T2 4 concurrent 2s jobs → min 3044ms /
+  max 6010ms (limit-3 queue, not serial 8s); T3 1.5MB stdout → capped at
+  1048602 chars with truncation marker; T4 AC sanity 20+22=42
+- ✅ tsc --noEmit clean via build type-check
+
+### Gotchas
+1. **Test code needs its own includes** - my SLOW_CODE in the smoke script
+   called printf without #include <stdio.h> → CE in ~1s, making the
+   concurrency test "pass" vacuously. Always assert verdicts, not just HTTP
+   200, when timing-sensitive.
+2. **PowerShell single-quoted strings don't expand `n** - testing multiline C
+   via ConvertTo-Json from a single-quoted PS string embedded literal backtick-n
+   into the source (→ CE). Use node/mjs scripts for anything with newlines.
+3. **Standalone harness testing needs `--conditions react-server`** -
+   harness → getJudgeProvider → 'server-only' throws under plain Node; running
+   with `node --conditions react-server --import tsx script.ts` resolves
+   server-only to its empty react-server entry. env vars (DATABASE_URL,
+   JWT_SECRET) must be set before the dynamic import because env.ts parses at
+   import time.
+4. **Rate buckets are process-scoped** - restarting the dev server resets the
+   Map; the route smoke uses distinct XFF IPs per test phase to avoid bucket
+   collisions within one server lifetime.
+
+### Files Created/Modified
+- src/lib/judge/harness.ts (new)
+- src/app/api/judge/run/route.ts (rate limit + concurrency + output cap)
+- scripts/smoke-judge-harness.ts (new), scripts/judge-route-smoke.mjs (new)
+- package.json - added p-limit@7.3.1
+- .omo/evidence/luna-for-c-mvp-scaffold/task-10-judge.md
+
+### Next Steps
+- Task 11: checkpoint DSL + wire runHiddenTests into the checkpoint flow
+  (hints feed the AI tutor, verdicts gate progression)
+- Multi-instance notes: in-memory rate buckets/queue are per-process; move to
+  Redis when scaling beyond one server
+
 ## Task 16: Socratic 追问与 valgrind 线索注入
 
 ### Date: 2026-08-31

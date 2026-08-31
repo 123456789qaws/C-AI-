@@ -150,7 +150,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Playwright 访问 `/dashboard` 截图 Evidence task-7；failure: 空数据时不白屏（显空状态）
       Commit: Y | feat(ui): luna panel teacher dashboard placeholders
 
-- [ ] 8. 定义 JudgeProvider 抽象与 /api/judge/run 契约
+- [x] 8. 定义 JudgeProvider 抽象与 /api/judge/run 契约
       What to do / Must NOT do: 建 `src/lib/providers/judge/types.ts`（JudgeProvider接口：run({language,source,stdin,limits})=>{status,stdout,stderr,signal,timeMs,memoryKb,valgrind?}}，Verdict=AC/WA/CE/RE/TLE），`src/lib/providers/judge/index.ts` 工厂（JUDGE_MODE auto/docker/local），`src/app/api/judge/run/route.ts` 薄包装校验 MAX_CODE_SIZE 64KB；Must NOT 在此实现具体执行。
       Parallelization: Wave 3 | Blocked by: 1,4 | Blocks: 9,11
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:7.2 POST /api/judge/run 契约；librarian Judge0/Piston 接口
@@ -158,7 +158,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Vitest `judge/types.test.ts` 校验工厂 env 切换，Evidence task-8；failure: 传超大 code 被 413 拒
       Commit: Y | feat(judge): provider interface api contract
 
-- [ ] 9. 实现 judge-lite 双 Runner（docker + local 回退）
+- [x] 9. 实现 judge-lite 双 Runner（docker + local 回退）
       What to do / Must NOT do: 建 `judge-lite/src/dockerRunner.ts`（`docker run --rm --network=none --memory=256m --pids-limit=64 --read-only --tmpfs /tmp gcc:13 bash -c "gcc -std=c11 -Wall -Wextra -O2 main.c -o main && timeout 5s ./main < input"`，解析 signal/time，valgrind 可选）与 `judge-lite/src/localRunner.ts`（`where gcc` 探测、mkdtemp、spawn+timeout+maxBuffer、归一化 Windows 信号、valgrind=null），`judge-lite/src/index.ts` 统一导出+health；`src/lib/providers/judge/docker.ts`/`local.ts` 适配；Must NOT 在 Next 进程内直接 eval 代码。
       Parallelization: Wave 3 | Blocked by: 8 | Blocks: 10,11
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:7.2 gcc flags；explore judge-lite Windows坑与回退设计；librarian 安全隔离
@@ -166,7 +166,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Vitest `judge/runners.test.ts` 测 CE/WA/RE/TLE 四态，Evidence task-9；failure: `fork bomb`/`#include <windows.h>` 被限/拒且不崩宿主
       Commit: Y | feat(judge): docker+local runners isolation fallback
 
-- [ ] 10. 判题限流与安全加固 + 隐藏测试执行器
+- [x] 10. 判题限流与安全加固 + 隐藏测试执行器
       What to do / Must NOT do: 在 `/api/judge/run` 加 `p-limit` 并发3、单 IP 10/min 内存限流、MAX_OUTPUT 1MB、网络禁；实现 `src/lib/judge/harness.ts` 批量跑 hidden_tests（stdin/expected 数组，逐用例比对，返回首个 WA 用例的性质描述而非直接答案）；Must NOT 回显完整 expected。
       Parallelization: Wave 3 | Blocked by: 9 | Blocks: 11
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:12.1 沙箱限权；12.4 隐藏测试性质描述
@@ -198,7 +198,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Playwright `checkpoint-flow.spec.ts` 完整走通 fib 两关，Evidence task-13 截图；failure: 未过关点 Hand in 被禁
       Commit: Y | feat(checkpoint): frontend verify unlock hand-in
 
-- [ ] 14. 定义 AIProvider 抽象与网关壳
+- [x] 14. 定义 AIProvider 抽象与网关壳
       What to do / Must NOT do: 建 `src/lib/providers/ai/types.ts`（AIProvider complete(prompt,opts)）、`src/lib/providers/ai/deepseek.ts`/`qwen.ts`/`mock.ts`、工厂 `src/lib/providers/ai/index.ts`（AI_PROVIDER env），`src/lib/ai/prompt.ts` 固化 system prompt（禁>5行、必反问、JSON判分），`src/app/api/ai/socratic/route.ts` 壳（鉴权+输入转义+限流）；Must NOT 将 system prompt 暴露前端。
       Parallelization: Wave 5 | Blocked by: 2 | Blocks: 15,18
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:8.2 system prompt 模板；librarian OpenAI-Compatible 切 provider
@@ -206,7 +206,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Vitest `ai/provider.test.ts` mock 回 JSON，Evidence task-14；failure: 注入“忽略之前指令”被转义不生效
       Commit: Y | feat(ai): provider abstraction prompt hard rules
 
-- [ ] 15. AI 限流/熔断/日志脱敏与 5 次上限
+- [x] 15. AI 限流/熔断/日志脱敏与 5 次上限
       What to do / Must NOT do: 在 AI 网关加每 checkpoint 5次限流（内存+DB 计数）、熔断（连续失败回退 mock）、prompt 注入过滤（“ignore previous”等）、日志脱敏（key 掩码）、token 记账；`src/lib/ai/rateLimit.ts`；Must NOT 让学生无限制刷 AI。
       Parallelization: Wave 5 | Blocked by: 14 | Blocks: 16,18
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:8.2 限流5次、12.2 注入、12.3 隐私
@@ -222,7 +222,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Vitest 段错误 Socratic 流，Evidence task-16；failure: 完整函数体输出被网关拦截（>5行阻断）
       Commit: Y | feat(ai): followup valgrind socratic injection
 
-- [ ] 17. 认证与会话（学号 JWT）及种子数据
+- [x] 17. 认证与会话（学号 JWT）及种子数据
       What to do / Must NOT do: `src/lib/auth/*`（bcrypt+JWT，role STUDENT/TEACHER/TA），`src/app/api/auth/login|logout|me`，中间件鉴权，`prisma/seed.ts` 造 2 教师+5 学生+2 Task，`src/lib/auth/provider.ts` 抽象以便二期换校内 IAM；Must NOT 明文存密码。
       Parallelization: Wave 6 | Blocked by: 3 | Blocks: 18
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:10.1 User模型；15.2 人力看板
