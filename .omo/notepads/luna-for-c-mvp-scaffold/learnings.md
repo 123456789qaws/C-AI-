@@ -293,6 +293,58 @@ pnpm lint
 - Task 7: Add Luna AI chat panel implementation
 - Task 8: Add file tree with actual file operations
 
+## Task 8: JudgeProvider 抽象与 /api/judge/run 契约
+
+### Date: 2026-08-31
+
+### Summary
+Defined the judge execution contract without implementing execution (deferred to todo 9):
+- `src/lib/providers/judge/types.ts` - Pure types: `Verdict` ('AC'|'WA'|'CE'|'RE'|'TLE'), `JudgeRunRequest`, `JudgeResult`, `JudgeProvider` interface. No server-only import so client code can render verdicts.
+- `src/lib/providers/judge/index.ts` - `getJudgeProvider()` factory switching on `env.JUDGE_MODE` (auto/docker/local), `import 'server-only'` at top. Returns a clearly-marked CE stub until todo 9 implements real runners.
+- `src/app/api/judge/run/route.ts` - Thin POST wrapper: zod validation (language === 'c', source min 1 max 65536, limits positive), >64KB source → 413 CODE_TOO_LARGE, other invalid → 400 INVALID_INPUT, provider errors → 500 JUDGE_FAILED. Rate-limit TODO comment left.
+
+### Key Decisions
+1. **CE stub provider** - Factory returns `{status:'CE', stderr:'judge-lite runners not yet implemented (todo 9)'}` so the HTTP contract works end-to-end before execution exists.
+2. **Pure types, server-only factory** - types.ts stays client-importable (types are erased); index.ts carries the `server-only` guard matching the ai providers pattern.
+3. **String length as size proxy** - MAX_CODE_SIZE = 64 * 1024 checked via `z.string().max()` (characters, not bytes); contract deliberately simple for the MVP.
+4. **Implementation omits unused param** - stub `run(): Promise<JudgeResult>` (no `_req`) because this ESLint config flags underscore-prefixed params (same as Task 2 gotcha).
+5. **Boundary inclusive** - exactly 65536 chars passes (200), 65537 → 413.
+
+### Commands Run
+```bash
+pnpm exec prettier --write src/lib/providers/judge src/app/api/judge/run/route.ts
+pnpm exec eslint src/lib/providers/judge src/app/api/judge/run/route.ts  # exit 0
+pnpm exec tsc --noEmit
+pnpm build
+pnpm lint
+# Functional: dev server on PORT=3100 + Invoke-WebRequest tests (T1-T6)
+```
+
+### Verification Results
+- ✅ pnpm build - Compiled successfully; route table shows `ƒ /api/judge/run`
+- ✅ pnpm lint - No ESLint warnings or errors
+- ✅ T1 valid C → 200 `{"status":"CE",...,"stderr":"judge-lite runners not yet implemented (todo 9)"}`
+- ✅ T2 language=cpp → 400 INVALID_INPUT; T3 bad JSON → 400 INVALID_JSON; T6 empty source → 400
+- ✅ T4 source 70000 chars → 413 CODE_TOO_LARGE; T5 exactly 65536 chars → 200 (boundary inclusive)
+
+### Files Created
+- src/lib/providers/judge/types.ts
+- src/lib/providers/judge/index.ts
+- src/app/api/judge/run/route.ts
+- .omo/evidence/luna-for-c-mvp-scaffold/task-8-judge.md
+
+### Gotchas
+1. **Route files may only export HTTP handlers + Next.js config** - `export const MAX_CODE_SIZE` in route.ts broke the build: Next generates `.next/types/app/api/judge/run/route.ts` with `checkFields` demanding every extra export be `never`. Fix: keep the constant module-private (no `export`).
+2. **trailingComma: 'es5'** - .prettierrc uses es5, so trailing commas in function calls (e.g. `NextResponse.json(..., { status: 400 })`) are stripped; run `prettier --write` after writing routes.
+3. **ESLint flags `_`-prefixed unused params** - @typescript-eslint/no-unused-vars has no `argsIgnorePattern` here; omit unused interface params entirely (TS allows fewer params in implementations).
+4. **`pnpm dev -- -p 3100` breaks via cmd /c** - quoting made next treat `-p` as project dir. Use `set PORT=3100&& pnpm dev` instead.
+5. **Concurrent tasks dirty the shared workspace** - tasks 7/10/11 were writing ai/auth files mid-task; their transient lint/type errors blocked full builds twice. Verify own files with targeted eslint/prettier/tsc, commit ONLY own paths, retry full build after their cleanup.
+
+### Next Steps
+- Task 9: 实现 judge-lite docker/local 实际执行（替换 CE stub）
+- Task 10: Auth / JWT 流程
+- Task 11: /api/judge/run 接入真实评测流程
+
 ## Task 14: 定义 AIProvider 抽象与网关壳
 
 ### Date: 2026-08-31
