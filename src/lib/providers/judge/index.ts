@@ -2,45 +2,49 @@ import 'server-only';
 
 import { env } from '@/lib/env';
 
-import type { JudgeProvider, JudgeResult } from './types';
+import { DockerJudgeProvider, isDockerDaemonAvailable } from './docker';
+import { LocalJudgeProvider } from './local';
+import type { JudgeProvider } from './types';
 
 /**
- * Stub provider used until todo 9 implements the real runners.
- * It answers CE for every submission so the /api/judge/run contract works
- * end-to-end before actual docker/local execution exists.
+ * Auto-mode docker probe cache. Probing `docker info` on a machine without a
+ * running daemon can block for seconds, so a failed probe is remembered for
+ * PROBE_TTL_MS instead of paying the cost on every request.
  */
-const stubJudgeProvider: JudgeProvider = {
-  name: 'judge-stub',
-  async run(): Promise<JudgeResult> {
-    return {
-      status: 'CE',
-      stdout: '',
-      stderr: 'judge-lite runners not yet implemented (todo 9)',
-      timeMs: 0,
-      memoryKb: 0,
-    };
-  },
-};
+const PROBE_TTL_MS = 30_000;
+let dockerProbe: { ok: boolean; at: number } | null = null;
+
+function dockerAvailable(): boolean {
+  if (dockerProbe && Date.now() - dockerProbe.at < PROBE_TTL_MS) {
+    return dockerProbe.ok;
+  }
+  const ok = isDockerDaemonAvailable();
+  dockerProbe = { ok, at: Date.now() };
+  return ok;
+}
 
 /**
  * Factory selecting the judge provider from env.JUDGE_MODE.
  *
- * - auto:   docker when the daemon is reachable, else local (todo 9)
- * - docker: run via judge-lite container (todo 9)
- * - local:  run via local gcc under rlimits (todo 9)
+ * - auto:   docker when the daemon is reachable, else local gcc
+ * - docker: run via ephemeral gcc:13 container (throws if daemon unreachable)
+ * - local:  run via local gcc with a hard wall-clock kill
  *
- * Todo 9 replaces the stub returns below with the real implementations.
+ * Both runners execute user code OUTSIDE the Next.js process (container or
+ * spawned executable) - user code is never eval'd in-process.
  */
 export function getJudgeProvider(): JudgeProvider {
   switch (env.JUDGE_MODE) {
     case 'docker':
-      // todo 9: DockerJudgeProvider - spawn judge-lite container
-      return stubJudgeProvider;
+      if (!dockerAvailable()) {
+        throw new Error(
+          'JUDGE_MODE=docker but the docker daemon is unreachable (is Docker Desktop running?)'
+        );
+      }
+      return new DockerJudgeProvider();
     case 'local':
-      // todo 9: LocalJudgeProvider - gcc compile + run under rlimits
-      return stubJudgeProvider;
+      return new LocalJudgeProvider();
     case 'auto':
-      // todo 9: AutoJudgeProvider - docker if daemon reachable, else local
-      return stubJudgeProvider;
+      return dockerAvailable() ? new DockerJudgeProvider() : new LocalJudgeProvider();
   }
 }

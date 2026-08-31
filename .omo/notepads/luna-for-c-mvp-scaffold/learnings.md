@@ -386,6 +386,60 @@ Successfully built the AI provider abstraction and the Socratic judge gateway sh
 - Task 9: real judge runners behind getJudgeProvider
 - Persist AiInteractionLog + CheckpointProgress once auth lands
 
+## Task 9: judge-lite 双 Runner（docker + local 回退）
+
+### Date: 2026-08-31
+
+### Summary
+Replaced the todo-8 CE stub with two real judge runners:
+- docker.ts: DockerJudgeProvider - ephemeral gcc:13 container (`--network=none
+  --memory=256m --pids-limit=64 --read-only --tmpfs /tmp -v dir:/code:ro`),
+  two-step compile→run, `timeout Ns` inside container, 128+N signal mapping.
+- local.ts: LocalJudgeProvider - MinGW gcc probe, mkdtemp, spawn main.exe with
+  piped stdin + 5s kill, Windows NTSTATUS→signal normalization (0xC0000005→SIGSEGV).
+- index.ts: auto (docker probe w/ 30s TTL cache → fallback local) / docker
+  (throw if daemon unreachable) / local. server-only in every provider file.
+
+### Key Decisions
+1. **Never eval user code in-process** - docker: container; local: spawned child
+   process. The Next process only orchestrates.
+2. **Two-step compile+run (docker)** - separate `docker run` calls make CE
+   detection unambiguous (compile exit≠0 = CE) at the cost of ~0.5s container
+   startup; `--read-only` + binary in `/tmp/main` keeps /code mount ro.
+3. **`timeout` inside container** - GNU timeout returns 124 (TLE) and bash exits
+   128+N on signal death, so docker exit codes map cleanly to verdicts.
+4. **30s TTL docker probe cache in auto mode** - `docker info` on a daemon-less
+   machine can block seconds; caching negative probes avoids per-request latency.
+5. **Local kill takes precedence** - `timedOut` flag set before `child.kill()`,
+   so the kill's exit code can't masquerade as RE.
+
+### Verification Results
+- ✅ tsc --noEmit 0 / pnpm build ✅ / pnpm lint 0
+- ✅ API (auto mode, daemon down → local gcc): AC hello+luna, RE+SIGSEGV,
+  TLE 2234ms (2s limit) & 5238ms (5s default), CE with gcc diagnostics
+- ✅ JUDGE_MODE=docker + daemon down → POST 500 (factory throw)
+- ⚠️ Docker container path untested (no daemon on this machine) - code-reviewed only
+
+### Gotchas
+1. **Parallel-task build pollution persists** - todo 15's in-flight writes caused
+   two transient build failures (`PageNotFoundError /_document`, `MODULE_NOT_FOUND`
+   in `.next` webpack-runtime); clean retry passed. Never trust a single build
+   failure while other tasks touch the tree.
+2. **PowerShell function output capture** - `$r = Run-Case ...` captures ALL
+   pipeline output (including diagnostic Write-Output lines) into `$r`; use
+   Write-Host for console diagnostics when a function also returns a value.
+3. **Harness kills long Start-Process scripts** - the bash tool terminates the
+   launching powershell (ChildProcess.kill) while the spawned `cmd /c pnpm dev`
+   survives; run tests against the already-started server in a separate call.
+4. **MinGW segfault = NTSTATUS exit code, not signal** - child `close` reports
+   `code=0xC0000005` (as negative int) with `signal=null`; must normalize the
+   unsigned value, not rely on the signal field.
+
+### Next Steps
+- Task 10: auth/JWT integration of /api/judge/run
+- Task 11: rate-limit + hidden-test harness (WA verdict) once task 15 lands
+- When a Docker daemon is available: re-run T1-T5 through the docker provider
+
 ## Task 15: AI 限流/熔断/日志脱敏与 5 次上限
 
 ### Date: 2026-08-31
