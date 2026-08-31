@@ -628,3 +628,40 @@ Established the task checkpoint DSL as standalone JSON files (the single source 
 - Task 12: gate verify/evaluate logic + /api/checkpoint/verify (weighted pass_threshold scoring, runHiddenTests wiring)
 - Todo 20: create hidden_tests/fib_2.json + linked_list_3.json
 - Optionally make prisma/seed.ts import tasks JSON for auto-sync
+
+## Task 12: 后端硬锁与 /api/checkpoint/verify 三级漏斗
+
+### Date: 2026-08-31
+
+### Summary
+Implemented the backend hard-lock + three-tier verify funnel (frontend greying is UX only):
+- src/lib/checkpoint/lockCheck.ts - checkEditorLock(code, allowedUnlockedLines, baseline?): 1-based inclusive regions, single region or array; baseline strict mode (locked lines must match template char-for-char) OR MVP fallback (locked lines must be blank)
+- src/lib/checkpoint/evaluate.ts - evaluateCheckpoint(checkpoint, {code, studentAnswer}, options?): per-gate regex → ai_socratic (direct AIProvider, confidence<0.7 → escalated + not counted toward score) → test_pass (loadHiddenTests → runHiddenTests real gcc); score = ΣpassedWeight/Σweight vs pass_threshold; DI options.ai/options.judge for test injection; loadHiddenTests exported
+- src/app/api/checkpoint/verify/route.ts - POST: bearer verifyToken (body.studentId MVP fallback), AI rate limit 5/checkpoint → 429, hard-lock tamper → 403 escalated + lock log, evaluate, per-gate AiInteractionLog rows (shared sessionId, codeBefore from previous codeAfter, minimal line diff), upsert CheckpointProgress (attempts+1, first unlockedAt), response {passed, score, escalated, perGate, testHint, nextCheckpointId, unlockRegions}
+
+### Key Decisions
+1. **Low-confidence AI never auto-passes** - confidence<0.7 → gate escalated AND excluded from score (otherwise escalation would be decorative; the funnel sends it to teacher review).
+2. **baseline mode for full-file submissions** - scaffold lines are non-empty, so the blank-line heuristic would 403 everything; route accepts optional body.baseline for strict template comparison. No baseline → task-spec MVP heuristic.
+3. **regex tested against answer OR code** - schema says answer, task text says code; either match passes (compatible with both).
+4. **Rate limit before evaluation** - whole verify consumes AI quota when any ai_socratic gate present; 6th → 429 请联系教师放行.
+5. **DB outage never blocks verdicts** - all persistence try/catch → redacted console.error; Postgres down on this machine so persistence is code-path verified + degradation tested live (prisma:query log shows correct SQL construction).
+6. **One log row per gate per verify** - replay chain via codeAfter→codeBefore, sessionId = randomUUID() per request.
+7. **No circuit-breaker duplication** - evaluate calls the provider directly; socratic route keeps its module-level breaker; provider failure → gate escalated + error code.
+
+### Verification Results
+- ✅ pnpm lint "No ESLint warnings or errors"; pnpm build ✓; ƒ /api/checkpoint/verify registered
+- ✅ HTTP smoke (mock AI, dev :3189) 25/25: 401/400/404, tamper→403 escalated+violations, cp1 pass score=1.0 nextCheckpointId=cp2 unlockRegions=[[16,30]], WA→failed+testHint no-expected-leak, baseline locked-line edit→403, real gcc AC on temp hidden tests, 6th AI verify→429
+- ✅ tsx unit (--conditions react-server, injected fakes) 24/24: lockCheck regions/CRLF/baseline, evaluate regex/AI low-confidence escalated/provider error/test_pass AC/WA/no-leak/missing-file, threshold boundaries
+- ⚠️ AiInteractionLog/CheckpointProgress live writes untested (no local Postgres); SQL construction confirmed via prisma:query logs
+
+### Gotchas
+1. **JWT_SECRET quoted in .env** - @next/env strips quotes but PowerShell extraction didn't → all requests 401 at middleware; dequote before signing test tokens.
+2. **[5,15] is a runtime Array** - Array.isArray can't distinguish tuple vs list-of-regions (for..of over [5,15] → "5 is not iterable"); discriminate by typeof first === 'number'.
+3. **Middleware blocks body.studentId fallback** - /api/checkpoint/* requires bearer at middleware, so the MVP body.studentId fallback is unreachable in deployed flows; integration tests must send real tokens.
+4. **hidden_tests/ is todo 20's deliverable** - QA used a temp fib_2.json (mirrors seed.ts data) then deleted it; missing file → gate escalated hidden_tests_unavailable, no crash.
+5. **Mock provider always confidence=0.9** - low-confidence escalation can't be exercised over HTTP with AI_PROVIDER=mock; covered by injected fake provider in unit checks instead.
+
+### Next Steps
+- Task 13: frontend wiring (verify button, unlock animation, submit flow) - submit full file + baseline for strict lock mode
+- Task 18: /api/logs replay + CSV (log rows already carry sessionId/codeDiff for timeline)
+- Todo 20: real hidden_tests/*.json + e2e
