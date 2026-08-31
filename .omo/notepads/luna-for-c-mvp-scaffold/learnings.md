@@ -701,3 +701,40 @@ Consolidated AiInteractionLog writes into a shared logger and added the replay/e
 ### Next Steps
 - Task 19 (blocks on this): consume /api/logs timeline for teacher dashboard replay; CSV export button
 - When Postgres is up: migrate deploy + seed, re-run smoke for real 2-record timeline + CSV download
+
+## Task 13: 前端 Checkpoint 交互与解锁联动（verify 接线 + 渐进解锁 + 篡改回滚）
+
+### Date: 2026-08-31
+
+### Summary
+Wire /api/checkpoint/verify into the IDE page end-to-end:
+- src/components/ide/CheckpointWorkspace.tsx (new, 'use client'): inline MVP task meta (fib_L2 public fields only), code state, checkpoint status map, 引导问题 display, 「请求验证」button, AI reply bubbles via LunaPanel, unlock flash animation, tamper rollback toast, Hand in gating (disabled until all pass)
+- src/app/(ide)/page.tsx → thin wrapper; layout.tsx right-sidebar placeholder removed (LunaPanel rendered inside workspace)
+- src/components/editor/MonacoWorkspace.tsx: + optional onLockViolation callback (rollback → toast)
+- src/middleware.ts: anonymous POST /api/checkpoint/verify allowed when body.studentId non-empty (demo channel; JWT still enforced elsewhere)
+- src/app/api/checkpoint/verify/route.ts: hard-lock allowed regions = union of checkpoints[0..currentIndex].unlock.editorRegion (sequential-unlock fix, see Key Decisions 1)
+- Design system: defined the shadcn tokens the codebase already referenced but never defined (primary/secondary/muted/card/border/input/ring/destructive/accent + radius-md) in globals.css + tailwind.config.ts; added unlock-pulse/toast-in keyframes
+- hidden_tests/fib_2.json (new, minimal 6 cases) so cp2 test_pass is passable end-to-end (todo 20 will finalize + e2e)
+
+### Key Decisions
+1. **多关卡渐进解锁修复（backend）**: todo 12's lock check used only the current checkpoint's editorRegion; verifying cp2 with the student's legit fib code in [5,15] would 403 tampered. Fixed: allowed = union of regions of checkpoints 0..k (checkpoints unlock sequentially by order). Product doc line 267 backs this ("校验解锁区的篡改" = previously-unlocked areas are not locked).
+2. **前端锁定 UI 语义**: lockedRegions = 永久头部 [1,4] + 所有未通过关卡的区间。初始全灰（聊天过关 cp1 后才解锁 [5,15]），cp2 区 [16,30] 保持灰色直到 cp2 通过 —— 严格匹配 task 13 规格 "passing cp1 unlocks 5-15; cp2 grey until passed"。API 返回的 unlockRegions（下一关区间）仅作参考，不驱动 UI（避免与顺序解锁语义冲突）。
+3. **Template 设计**: 30 行模板把 fib 放 [5,15]、main 放 [16,30]（judge 直接编译整个文件，main 必须存在）；cp2 的隐藏测试跑学生 fib + 模板 main。
+4. **答案零前端存储**: 内联 meta 只有 id/title/guide_question/unlockRegion（tasks JSON 的公开字段）；regex rule/rubric/隐藏测试只存在于服务端。
+5. **studentAnswer** = 当前关卡内用户消息拼接（chatContext，过关后清空）；studentId 用固定演示值（todo 17 JWT 接入后移除）。
+
+### Verification Results
+- ✅ pnpm lint "No ESLint warnings or errors"; pnpm build ✓ (14 routes, middleware 27 kB)
+- ✅ HTTP smoke 5/5 (dev :3001, real DeepSeek AI + real gcc): cp1 verify passed score=1.0 next=cp2 unlockRegions=[[16,30]]; cp2 verify passed with fib in [5,15] (sequential-unlock fix validated); cp2 wrong impl failed with nature-only hint (no expected leak); tampered locked line → 403 violations=[3]; missing identity → 401
+- ✅ Page renders HTTP 200 with workspace markup; prisma:error log lines = known DB-down degradation (verdicts unaffected)
+
+### Gotchas
+1. **Smoke test template extraction must unescape JS template literals** - reading INITIAL_CODE from source gives `\\n`; must `.replace(/\\\\n/g, '\\n')` to match bytes the component actually sends.
+2. **Port 3000 already occupied** by a previous dev server - dev came up on 3001.
+3. **任务 13 规格与 todo 12 的 unlockRegions 语义差异** - route returns next cp's region on pass; frontend deliberately drives lock UI from its own passed map (sequential). Not a bug - two layers of the same contract.
+4. **Prettier autofix required** after writing new component (lint gates on prettier/prettier).
+
+### Next Steps
+- Task 14: GET /api/tasks/:id to replace inline TASK_META (remove MVP placeholder)
+- Task 17: JWT identity replaces DEMO_STUDENT_ID + remove middleware anonymous channel
+- Todo 20: finalize hidden_tests/*.json + e2e

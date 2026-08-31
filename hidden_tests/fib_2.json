@@ -1,0 +1,10 @@
+{
+  "tests": [
+    { "input": "0", "expected": "0", "description": "边界：n=0 直接返回 0" },
+    { "input": "1", "expected": "1", "description": "边界：n=1 直接返回 1" },
+    { "input": "2", "expected": "1", "description": "基础递归：fib(2)" },
+    { "input": "5", "expected": "5", "description": "递归链：fib(5)" },
+    { "input": "10", "expected": "55", "description": "递归链：fib(10)" },
+    { "input": "15", "expected": "610", "description": "递归链：fib(15)" }
+  ]
+}

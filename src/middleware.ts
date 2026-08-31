@@ -65,6 +65,20 @@ async function verifyHs256Signature(token: string, secret: string): Promise<bool
 }
 
 export async function middleware(req: NextRequest) {
+  // MVP demo 通道：POST /api/checkpoint/verify 允许匿名（请求体携带非空 studentId 时放行），
+  // 身份由路由内的 resolveStudentId 兜底解析（todo 12 约定）。其余 /api/checkpoint/*、/api/logs/*
+  // 仍强制 Bearer —— 前端演示无需 JWT，正式鉴权（todo 17）接入后移除本通道。
+  if (req.method === 'POST' && req.nextUrl.pathname === '/api/checkpoint/verify') {
+    try {
+      const body = await req.clone().json();
+      if (typeof body?.studentId === 'string' && body.studentId.trim().length > 0) {
+        return NextResponse.next();
+      }
+    } catch {
+      // 非 JSON 或解析失败 → 落入下方 Bearer 校验
+    }
+  }
+
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     // Fail closed: without a secret nothing can be verified.

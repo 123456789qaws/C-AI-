@@ -2,16 +2,54 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+ * 设计令牌（shadcn zinc 语义色）—— 组件库（button/card/LunaPanel
+ * 等）引用的 bg-primary / text-muted-foreground / border-border
+ * 等均解析到此处变量；tailwind.config.ts 将它们映射为工具类。
+ * ============================================================ */
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  --font-inter: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-inter:
+    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --destructive: #dc2626;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #71717a;
+  --radius-md: 0.5rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --card: #171717;
+    --card-foreground: #ededed;
+    --primary: #ededed;
+    --primary-foreground: #18181b;
+    --secondary: #262626;
+    --secondary-foreground: #fafafa;
+    --muted: #262626;
+    --muted-foreground: #a1a1aa;
+    --accent: #262626;
+    --accent-foreground: #fafafa;
+    --destructive: #ef4444;
+    --border: #27272a;
+    --input: #3f3f46;
+    --ring: #a1a1aa;
+    --radius-md: 0.5rem;
   }
 }
 
@@ -51,4 +89,44 @@ body {
     line-height: 16px;
     font-size: 12px;
   }
+}
+
+/* ============================================================
+ * 解锁动画：关卡通过时对解锁区域做一次绿色高亮脉冲。
+ * ============================================================ */
+@keyframes unlock-pulse {
+  0% {
+    box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.9);
+    background-color: rgba(34, 197, 94, 0.14);
+  }
+  70% {
+    box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.35);
+    background-color: rgba(34, 197, 94, 0.05);
+  }
+  100% {
+    box-shadow: inset 0 0 0 2px transparent;
+    background-color: transparent;
+  }
+}
+
+.unlock-flash {
+  animation: unlock-pulse 1.2s ease-out 1;
+}
+
+/* ============================================================
+ * Toast 入场动画
+ * ============================================================ */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-in {
+  animation: toast-in 0.25s ease-out 1;
 }

@@ -23,6 +23,8 @@ interface MonacoWorkspaceProps {
   lockedRegions: LockedRegion[];
   onChange: (value: string) => void;
   isTeacherView?: boolean;
+  /** 越权编辑被回滚后触发（前端提示用）；后端 verify 仍会独立二次校验 */
+  onLockViolation?: () => void;
 }
 
 export default function MonacoWorkspace({
@@ -30,6 +32,7 @@ export default function MonacoWorkspace({
   lockedRegions,
   onChange,
   isTeacherView = false,
+  onLockViolation,
 }: MonacoWorkspaceProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const decorationsRef = useRef<string[]>([]);
@@ -154,6 +157,7 @@ export default function MonacoWorkspace({
             },
           ]);
           isUpdatingRef.current = false;
+          onLockViolation?.();
           return;
         }
 
@@ -162,7 +166,7 @@ export default function MonacoWorkspace({
         onChange(newValue);
       });
     },
-    [applyDecorations, onChange, overlapsLockedRegion, isTeacherView]
+    [applyDecorations, onChange, overlapsLockedRegion, isTeacherView, onLockViolation]
   );
 
   // Update decorations when lockedRegions change
