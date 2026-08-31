@@ -18,9 +18,10 @@ enum Role {
 }
 
 model User {
-  id        String   @id // 学号/工号
-  role      Role
-  name      String
+  id           String   @id // 学号/工号
+  role         Role
+  name         String
+  passwordHash String?  @db.Text // bcrypt hash, null for school-IAM users
 }
 
 model Task {
