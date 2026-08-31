@@ -665,3 +665,39 @@ Implemented the backend hard-lock + three-tier verify funnel (frontend greying i
 - Task 13: frontend wiring (verify button, unlock animation, submit flow) - submit full file + baseline for strict lock mode
 - Task 18: /api/logs replay + CSV (log rows already carry sessionId/codeDiff for timeline)
 - Todo 20: real hidden_tests/*.json + e2e
+
+## Task 18: 日志落库与回放 API（AiInteractionLog 全字段）
+
+### Date: 2026-08-31
+
+### Summary
+Consolidated AiInteractionLog writes into a shared logger and added the replay/export API:
+- src/lib/logs/diff.ts - minimal line diff (prefix/suffix trim + `@@` header, '' when same/no-before, 64KB cap, zero deps)
+- src/lib/logs/logger.ts - logInteraction() full-field create with auto codeDiff + random sessionId fallback; try/catch degrades to redacted console.error (DB down never blocks verdicts)
+- src/lib/logs/csv.ts - csvEscape/toCsv (RFC 4180) + redactStudentId (keep first2+last2, mask middle; <6 chars -> '***')
+- src/app/api/logs/route.ts - GET timeline: bearer verifyToken (middleware + route double-check); STUDENT forced to own id (query override ignored), TEACHER/TA all or filtered; ORDER BY ts ASC, id ASC; ?format=csv -> attachment with studentId redacted for STUDENT viewers
+- verify route refactored: inline simpleLineDiff/persistInteractionLog removed (-85 lines), lock-tamper + per-gate rows now call logInteraction (behavior unchanged, codeDiff centralized)
+- socratic route: optional taskId, Bearer-first resolveStudentId, logInteraction write per call (role=assistant, gateResult=pass/fail)
+
+### Key Decisions
+1. **Shared logger, not per-route prisma** - codeDiff computed in ONE place (logger), dedupes the diff logic previously duplicated inline in verify.
+2. **Student-forced own id, redaction as defense-in-depth** - a student can never query others, AND their CSV export masks every studentId cell; either layer alone prevents class-data leaks.
+3. **diff '' when no before-state** - replay chain builds codeBefore from previous codeAfter; first submission has no before -> no noise patch (matches verify's old simpleLineDiff semantics).
+4. **Logs route never blocks on DB** - findMany failure -> 500 db_error with redacted console.error (no data, no crash).
+
+### Verification Results
+- ✅ pnpm build / pnpm lint / tsc --noEmit all exit 0; ƒ /api/logs registered
+- ✅ tsx unit 20/20 (diff same/no-before/CRLF/truncation; csv escape/structure/redact)
+- ✅ HTTP smoke 9/9 (dev :3190, mock AI, PG down): 401 no/bad token; student+taskId -> db_error; studentId=99999999 override never bound in SQL (access log only); teacher WHERE 1=1; 2 verifies passed + tamper 403 (verdicts unaffected by failed log writes)
+- ✅ prisma:query evidence: 5× full-field INSERT (2 verifies×2 gates + 1 tamper), 3 query shapes (taskId+studentId / studentId / 1=1) all ORDER BY ts ASC, 5× `[logs] AiInteractionLog 写入失败` degradation lines
+- ⚠️ End-to-end timeline/CSV download needs live Postgres (none on this machine); SQL construction + authz proven, pure functions unit-covered
+
+### Gotchas
+1. **prisma:query logs placeholders, not values (driver adapter)** - could not assert the bound param VALUE for the forced own-id query from logs alone; relied on code path + the override id appearing nowhere except the access-log URL line.
+2. **Parallel tasks dirty middleware.ts** - another task added an anonymous demo channel for POST /api/checkpoint/verify; /api/logs/* Bearer gate unaffected (verified 401 live). Commit only own paths.
+3. **Prisma.AiInteractionLogGetPayload<object> typing is version-fragile** - used `Awaited<ReturnType<typeof prisma.aiInteractionLog.findMany>>` instead; guaranteed to typecheck across prisma 5.x.
+4. **Route files may only export HTTP handlers** (task 8/14 gotcha) - extractBearerToken/resolveStudentId kept module-private in routes.
+
+### Next Steps
+- Task 19 (blocks on this): consume /api/logs timeline for teacher dashboard replay; CSV export button
+- When Postgres is up: migrate deploy + seed, re-run smoke for real 2-record timeline + CSV download

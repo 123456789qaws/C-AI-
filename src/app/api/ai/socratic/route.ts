@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { NextResponse } from 'next/server';
 
 import { aiProvider } from '@/lib/providers/ai';
@@ -6,6 +8,8 @@ import { SocraticSystemPrompt } from '@/lib/ai/prompt';
 import { buildSocraticContext } from '@/lib/ai/context';
 import { checkRateLimit } from '@/lib/ai/rateLimit';
 import { sanitizePrompt, redactSecrets, logAiUsage, enforceSocraticHardRule } from '@/lib/ai/guard';
+import { verifyToken } from '@/lib/auth/jwt';
+import { logInteraction } from '@/lib/logs/logger';
 
 /**
  * POST /api/ai/socratic —— 苏格拉底式判题网关。
@@ -23,8 +27,10 @@ import { sanitizePrompt, redactSecrets, logAiUsage, enforceSocraticHardRule } fr
  * - RE + 内存线索 → buildSocraticContext 注入脱敏崩溃摘要，引导模型追问定位
  * - 回复经 enforceSocraticHardRule 兜底：完整函数体（>5 行）绝不流到学生侧
  *
- * ⚠️ 鉴权仍为占位（Task 17 接入 JWT）；MVP 阶段 studentId 取自请求体，
- * 缺省 'anonymous'。接入 JWT 后请删除该字段直读逻辑。
+ * 身份与日志（Task 17/18）：
+ * - Bearer(JWT) 优先解析学生身份，兜底 body.studentId，缺省 'anonymous'
+ *   （本路由不在 middleware 保护名单内，故在路由内自行解析）
+ * - 每次调用经 logInteraction 落库 AiInteractionLog（全字段，Task 18）
  */
 
 // TODO(auth): 接入真实鉴权（JWT），校验请求者身份并写入 AiInteractionLog.studentId
@@ -47,8 +53,10 @@ let consecutiveProviderFailures = 0;
 
 interface SocraticRequestBody {
   checkpointId?: string;
-  /** MVP：前端显式传入学生标识；Task 17 改为从 JWT 解析 */
+  /** MVP：前端显式传入学生标识；Task 17 接入 JWT 后改为从 token 解析 */
   studentId?: string;
+  /** 所属任务（Task 18 日志落库用）；缺省 'unknown' */
+  taskId?: string;
   studentAnswer?: string;
   codeSnippet?: string;
   history?: Array<{ role?: string; content?: string }>;
@@ -72,6 +80,16 @@ function escapeInput(input: string, maxLen: number): string {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
     .trim()
     .slice(0, maxLen);
+}
+
+/** 身份解析：Bearer(JWT) 优先，MVP 兜底 body.studentId，缺省 'anonymous' */
+function resolveStudentId(request: Request, body: SocraticRequestBody): string {
+  const header = request.headers.get('authorization');
+  if (header?.startsWith('Bearer ')) {
+    const payload = verifyToken(header.slice('Bearer '.length).trim());
+    if (payload) return payload.id;
+  }
+  return escapeInput(body.studentId ?? '', MAX_STUDENT_ID_LEN) || 'anonymous';
 }
 
 /** 从模型文本中稳健地解析出 {pass,confidence,reply,reason}，失败时降级 */
@@ -137,8 +155,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
   }
 
-  // 学生身份：MVP 从请求体读取（Task 17 接入 JWT 后改为从 token 解析），缺省 anonymous
-  const studentId = escapeInput(body.studentId ?? '', MAX_STUDENT_ID_LEN) || 'anonymous';
+  // 学生身份：Bearer(JWT) 优先，MVP 从请求体读取（Task 17 已接入 JWT），缺省 anonymous
+  const studentId = resolveStudentId(request, body);
+  const taskId = escapeInput(body.taskId ?? '', 256) || 'unknown';
   const checkpointId = escapeInput(body.checkpointId ?? '', 256) || 'unknown';
 
   // 注入过滤 + 转义 + 截断
@@ -247,10 +266,26 @@ export async function POST(request: Request) {
   // 网关兜底：模型违规输出完整函数体（>5 行代码）时，替换为引导式提问
   const reply = enforceSocraticHardRule(judge.reply);
 
-  // token 记账（进程内累计；Task 17 后可落 AiInteractionLog.tokens）
+  // token 记账（进程内累计）
   logAiUsage({ provider: providerUsed, tokens: completion.usage.tokens, checkpointId });
 
-  // TODO(task-17): 持久化 AiInteractionLog / 更新 CheckpointProgress（依赖鉴权落地）
+  // Task 18: 交互日志落库（全字段）；DB 不可用时 logger 内部降级，不阻塞响应
+  await logInteraction({
+    studentId,
+    taskId,
+    checkpointId,
+    sessionId: randomUUID(),
+    role: 'assistant',
+    promptText: userPrompt.slice(0, 20000),
+    aiReply: reply,
+    gateResult: judge.pass ? 'passed' : 'failed',
+    gateType: 'ai_socratic',
+    model: providerUsed,
+    tokens: completion.usage.tokens,
+    confidence: judge.confidence,
+    codeBefore: undefined,
+    codeAfter: codeSnippet.length > 0 ? codeSnippet : undefined,
+  });
 
   return NextResponse.json({
     pass: judge.pass,

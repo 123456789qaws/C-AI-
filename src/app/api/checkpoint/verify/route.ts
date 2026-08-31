@@ -6,6 +6,7 @@ import { z } from 'zod';
 import prisma from '@/lib/db';
 import { verifyToken } from '@/lib/auth/jwt';
 import { redactSecrets } from '@/lib/ai/guard';
+import { logInteraction } from '@/lib/logs/logger';
 import { checkRateLimit } from '@/lib/ai/rateLimit';
 import { loadTask } from '@/lib/checkpoint/loader';
 import { checkEditorLock } from '@/lib/checkpoint/lockCheck';
@@ -66,28 +67,6 @@ function resolveStudentId(req: Request, body: VerifyBody): string | null {
   return bodyId.length > 0 ? bodyId : null;
 }
 
-/** 最小行级 diff（公共前缀/后缀裁剪 + 增删行），无前态或相同 → '' */
-function simpleLineDiff(before: string | undefined, after: string): string {
-  if (before === undefined || before === after) return '';
-  const a = before.split(/\r?\n/);
-  const b = after.split(/\r?\n/);
-
-  let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start++;
-
-  let endA = a.length;
-  let endB = b.length;
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
-    endA--;
-    endB--;
-  }
-
-  const lines: string[] = [];
-  for (let i = start; i < endA; i++) lines.push(`-${a[i]}`);
-  for (let i = start; i < endB; i++) lines.push(`+${b[i]}`);
-  return lines.join('\n').slice(0, MAX_CODE_SIZE);
-}
-
 /** 上一次该关卡提交的代码（作为本次 codeBefore，形成回放链） */
 async function previousCode(
   studentId: string,
@@ -103,53 +82,6 @@ async function previousCode(
     return last?.codeAfter ?? undefined;
   } catch {
     return undefined;
-  }
-}
-
-interface LogRowInput {
-  role: string;
-  promptText?: string;
-  aiReply?: string;
-  gateResult: 'passed' | 'failed' | 'escalated';
-  gateType: string;
-  model: string;
-  tokens?: number;
-  confidence?: number;
-  codeBefore?: string;
-  codeAfter?: string;
-  codeDiff?: string;
-}
-
-/** 写一条 AiInteractionLog；DB 不可用时降级为 console.error，不阻塞判定结果 */
-async function persistInteractionLog(
-  ctx: { studentId: string; taskId: string; checkpointId: string; sessionId: string },
-  row: LogRowInput
-): Promise<void> {
-  try {
-    await prisma.aiInteractionLog.create({
-      data: {
-        studentId: ctx.studentId,
-        taskId: ctx.taskId,
-        checkpointId: ctx.checkpointId,
-        sessionId: ctx.sessionId,
-        role: row.role,
-        promptText: row.promptText ?? null,
-        aiReply: row.aiReply ?? null,
-        codeBefore: row.codeBefore ?? null,
-        codeAfter: row.codeAfter ?? null,
-        codeDiff: row.codeDiff ?? null,
-        gateResult: row.gateResult,
-        gateType: row.gateType,
-        model: row.model,
-        tokens: row.tokens ?? null,
-        confidence: row.confidence ?? null,
-      },
-    });
-  } catch (err) {
-    console.error(
-      '[verify] AiInteractionLog 写入失败:',
-      redactSecrets(err instanceof Error ? err.message : String(err))
-    );
   }
 }
 
@@ -263,12 +195,23 @@ export async function POST(req: Request) {
     }
   }
 
-  // 3) 后端硬锁：锁定行（editorRegion 之外）被写入内容 → 403 + escalated
+  // 3) 后端硬锁：锁定行（已解锁区间之外）被写入内容 → 403 + escalated
+  // checkpoint 按顺序解锁（通过 cp_i 才能验证 cp_{i+1}），验证 cp_k 时第 0..k 个
+  // checkpoint 的 unlock.editorRegion 全部视为已解锁区间（学生可能已写入内容）。
+  // 只用当前关卡自己的区间会把前序关卡的合法编辑误判为越权（todo 12 单关卡语义，此处扩展为多关卡）。
+  const currentIndex = task.checkpoints.findIndex((c) => c.id === checkpointId);
   if (code.trim().length > 0) {
-    const lock = checkEditorLock(code, checkpoint.unlock.editorRegion, input.baseline);
+    const unlockedRegions: readonly [number, number][] = task.checkpoints
+      .slice(0, currentIndex + 1)
+      .map((c) => c.unlock.editorRegion);
+    const lock = checkEditorLock(code, unlockedRegions, input.baseline);
     if (lock.tampered) {
       const codeBefore = await previousCode(studentId, taskId, checkpointId);
-      await persistInteractionLog(ctx, {
+      await logInteraction({
+        studentId: ctx.studentId,
+        taskId: ctx.taskId,
+        checkpointId: ctx.checkpointId,
+        sessionId: ctx.sessionId,
         role: 'system',
         promptText: `硬锁校验：行 ${lock.violations.join(', ')} 越权编辑（允许区间 ${lock.regions
           .map(([s, e]) => `${s}-${e}`)
@@ -278,7 +221,6 @@ export async function POST(req: Request) {
         model: 'lock-check',
         codeBefore,
         codeAfter: code,
-        codeDiff: simpleLineDiff(codeBefore, code),
       });
       await upsertProgress(ctx, false);
 
@@ -310,11 +252,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'evaluate_failed' }, { status: 500 });
   }
 
-  // 5) 日志与进度落库（每次验证都全量记录）
+  // 5) 日志与进度落库（每次验证都全量记录；codeDiff 由 logger 统一计算）
   const codeBefore = await previousCode(studentId, taskId, checkpointId);
-  const codeDiff = simpleLineDiff(codeBefore, code);
   for (const gate of result.perGate) {
-    await persistInteractionLog(ctx, {
+    await logInteraction({
+      studentId: ctx.studentId,
+      taskId: ctx.taskId,
+      checkpointId: ctx.checkpointId,
+      sessionId: ctx.sessionId,
       role: gate.type === 'ai_socratic' ? 'assistant' : 'system',
       promptText: gate.promptText,
       aiReply: gate.reply,
@@ -325,13 +270,11 @@ export async function POST(req: Request) {
       confidence: gate.confidence,
       codeBefore,
       codeAfter: code.length > 0 ? code : undefined,
-      codeDiff,
     });
   }
   const attempts = await upsertProgress(ctx, result.passed);
 
   // 6) 过关 → 提示下一关卡与解锁区间
-  const currentIndex = task.checkpoints.findIndex((c) => c.id === checkpointId);
   const next = result.passed && currentIndex >= 0 ? task.checkpoints[currentIndex + 1] : undefined;
 
   return NextResponse.json({
