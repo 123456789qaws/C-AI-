@@ -25,7 +25,7 @@ import type { Checkpoint, Task } from '@/lib/checkpoint/schema';
  *    期望值绝不回传（仅回传失败用例的性质描述）。
  *
  * 每次验证（含越权拒收）都写 AiInteractionLog（全字段）+ upsert CheckpointProgress。
- * 鉴权：Authorization Bearer（verifyToken）→ studentId；MVP 兜底 body.studentId。
+ * 鉴权：Authorization Bearer（verifyToken）→ studentId；**不再允许 body.studentId 兜底**。
  * 绝不只信前端锁 —— 前端灰显可被 F12 绕过，本路由是唯一权威判定。
  */
 
@@ -41,11 +41,7 @@ const verifyBodySchema = z.object({
   studentAnswer: z.string().max(MAX_ANSWER_SIZE).optional(),
   /** 起始模板代码（可选）：提供后锁定行必须与模板一致（严格硬锁） */
   baseline: z.string().max(MAX_CODE_SIZE).optional(),
-  /** MVP 兜底：无 Bearer 时使用请求体学生标识 */
-  studentId: z.string().max(MAX_ID_SIZE).optional(),
 });
-
-type VerifyBody = z.infer<typeof verifyBodySchema>;
 
 /** Bearer 解析（与 /api/auth/me 一致） */
 function extractBearerToken(req: Request): string | null {
@@ -55,15 +51,12 @@ function extractBearerToken(req: Request): string | null {
   return token.length > 0 ? token : null;
 }
 
-/** 身份解析：Bearer(JWT) 优先，MVP 兜底 body.studentId */
-function resolveStudentId(req: Request, body: VerifyBody): string | null {
+/** 从 Bearer token 解析 studentId；无效/缺失 → null（由调用方返回 401） */
+function resolveStudentId(req: Request): string | null {
   const token = extractBearerToken(req);
-  if (token) {
-    const payload = verifyToken(token);
-    if (payload) return payload.id;
-  }
-  const bodyId = (body.studentId ?? '').trim();
-  return bodyId.length > 0 ? bodyId : null;
+  if (!token) return null;
+  const payload = verifyToken(token);
+  return payload?.id ?? null;
 }
 
 /** 上一次该关卡提交的代码（作为本次 codeBefore，形成回放链） */
@@ -150,7 +143,7 @@ export async function POST(req: Request) {
   }
   const input = parsed.data;
 
-  const studentId = resolveStudentId(req, input);
+  const studentId = resolveStudentId(req);
   if (!studentId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

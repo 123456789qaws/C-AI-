@@ -7,7 +7,11 @@ import { NextRequest, NextResponse } from 'next/server';
 // with Web Crypto. The route handlers themselves re-verify via
 // `verifyToken()` (Node runtime) as the authoritative check.
 //
-// Protected:  /api/checkpoint/*, /api/logs/*
+// Protected:
+//   /api/checkpoint/*      - all require Bearer (verify route no longer allows anonymous)
+//   /api/logs/*            - all require Bearer
+//   /api/admin/*           - ADMIN only (role checked in route handlers)
+//   /dashboard             - TEACHER/ADMIN only (page guard, role checked in page)
 // Allowed by default (no matcher): /api/health, /api/auth/*, pages, assets.
 
 const B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -65,20 +69,6 @@ async function verifyHs256Signature(token: string, secret: string): Promise<bool
 }
 
 export async function middleware(req: NextRequest) {
-  // MVP demo 通道：POST /api/checkpoint/verify 允许匿名（请求体携带非空 studentId 时放行），
-  // 身份由路由内的 resolveStudentId 兜底解析（todo 12 约定）。其余 /api/checkpoint/*、/api/logs/*
-  // 仍强制 Bearer —— 前端演示无需 JWT，正式鉴权（todo 17）接入后移除本通道。
-  if (req.method === 'POST' && req.nextUrl.pathname === '/api/checkpoint/verify') {
-    try {
-      const body = await req.clone().json();
-      if (typeof body?.studentId === 'string' && body.studentId.trim().length > 0) {
-        return NextResponse.next();
-      }
-    } catch {
-      // 非 JSON 或解析失败 → 落入下方 Bearer 校验
-    }
-  }
-
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     // Fail closed: without a secret nothing can be verified.
@@ -97,5 +87,5 @@ export async function middleware(req: NextRequest) {
 // Only run on protected API paths; /api/health, /api/auth/* and everything
 // else pass through untouched.
 export const config = {
-  matcher: ['/api/checkpoint/:path*', '/api/logs/:path*'],
+  matcher: ['/api/checkpoint/:path*', '/api/logs/:path*', '/api/admin/:path*', '/dashboard/:path*'],
 };

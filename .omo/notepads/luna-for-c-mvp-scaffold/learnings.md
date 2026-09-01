@@ -973,3 +973,38 @@ Extended root AGENTS.md from the 5 user 注意事项 rules into a full executabl
 
 ### Next Steps
 - No follow-ups; doc is stable. Re-verify after any future boundary/provider change.
+
+## Improve 4: 前端主题系统（浅色/暗色自由切换）
+
+### Date: 2026-09-01
+
+### Summary
+Implemented light/dark theme system with manual toggle, localStorage persistence, and Monaco editor theme sync:
+- ThemeProvider (React context + useEffect class toggle + localStorage)
+- ThemeToggle button (lucide-react Sun/Moon icons)
+- globals.css: `@media (prefers-color-scheme: dark)` → `.dark` class
+- tailwind.config.ts: `darkMode: 'class'`
+- MonacoWorkspace: dual themes `luna-light` (base 'vs', bg #fafafa) + `luna-dark` (base 'vs-dark', bg #0a0a0a), synced via useTheme context
+
+### Key Decisions
+1. **Class-based dark mode** — enables manual toggle (media query is system-only); `.dark` class on `<html>` overrides `:root` CSS vars
+2. **suppressHydrationWarning** — prevents React hydration mismatch from `.dark` class set by client-side useEffect
+3. **useTheme returns safe defaults** — during SSG/prerender, ThemeProvider context is undefined; returning `{theme:'light', setTheme:noop, toggle:noop}` avoids throw
+4. **mounted guard in ThemeProvider** — renders children immediately when `mounted=false`, class toggle deferred to useEffect; prevents FOUC
+5. **Monaco themes match CSS vars** — `luna-light` bg `#fafafa` ≈ `--card` light; `luna-dark` bg `#0a0a0a` = `--background` dark; visual coherence
+6. **Locked-line styles unchanged** — `rgba(156, 163, 175, 0.1)` + amber accent bar works in both themes
+
+### Gotchas
+1. **SSG prerender breaks context-dependent hooks** — `useTheme()` inside MonacoWorkspace runs during static generation where no ThemeProvider exists; must not throw
+2. **Parallel task files block full lint** — classes/assignments/admin routes from concurrent task had trailing-newline + unused-import errors; fixed to unblock `pnpm build`
+3. **Prisma Client type lag** — new models (Class, ClassEnrollment, TaskAssignment, ADMIN role) show LSP errors until `prisma generate` is re-run; build succeeds because types are regenerated at build time
+4. **Monaco theme switching** — `defineTheme` + `setTheme` must be called in `onMount` for initial; `useEffect` handles subsequent changes; calling `setTheme` before `defineTheme` is a no-op
+
+### Files Created/Modified
+- Created: `src/components/theme/ThemeProvider.tsx`, `src/components/theme/ThemeToggle.tsx`
+- Modified: `src/app/globals.css`, `tailwind.config.ts`, `src/app/layout.tsx`, `src/components/editor/MonacoWorkspace.tsx`
+- Fixed (parallel task lint): `src/middleware.ts`, `src/lib/auth/require.ts`, `src/app/api/classes/route.ts`, `src/app/api/classes/join/route.ts`, `src/app/api/classes/[id]/enrollments/route.ts`, `src/app/api/assignments/route.ts`, `src/app/api/assignments/student/route.ts`, `src/app/api/admin/import/route.ts`, `src/app/api/checkpoint/verify/route.ts`
+
+### Verification
+- ✅ pnpm lint — "No ESLint warnings or errors"
+- ✅ pnpm build — Compiled successfully, 20 static pages, 17 API routes

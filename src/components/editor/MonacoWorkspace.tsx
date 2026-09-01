@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import type * as monaco from 'monaco-editor';
+import { useTheme } from '@/components/theme/ThemeProvider';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react').then((mod) => mod.default), {
   ssr: false,
@@ -34,7 +35,9 @@ export default function MonacoWorkspace({
   isTeacherView = false,
   onLockViolation,
 }: MonacoWorkspaceProps) {
+  const { theme } = useTheme();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const decorationsRef = useRef<string[]>([]);
   const isUpdatingRef = useRef(false);
   const lastValueRef = useRef(value);
@@ -94,8 +97,22 @@ export default function MonacoWorkspace({
       monacoInstance: typeof import('monaco-editor')
     ) => {
       editorRef.current = editor;
+      monacoRef.current = monacoInstance;
 
-      // Configure monaco loader
+      // Define both light and dark themes
+      monacoInstance.editor.defineTheme('luna-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#fafafa',
+          'editor.foreground': '#171717',
+          'editor.lineHighlightBackground': '#f4f4f5',
+          'editorLineNumber.foreground': '#a1a1aa',
+          'editorLineNumber.activeForeground': '#171717',
+        },
+      });
+
       monacoInstance.editor.defineTheme('luna-dark', {
         base: 'vs-dark',
         inherit: true,
@@ -108,7 +125,9 @@ export default function MonacoWorkspace({
           'editorLineNumber.activeForeground': '#ededed',
         },
       });
-      monacoInstance.editor.setTheme('luna-dark');
+
+      // Set initial theme based on context
+      monacoInstance.editor.setTheme(theme === 'dark' ? 'luna-dark' : 'luna-light');
 
       // Apply initial decorations
       applyDecorations(editor);
@@ -166,7 +185,8 @@ export default function MonacoWorkspace({
         onChange(newValue);
       });
     },
-    [applyDecorations, onChange, overlapsLockedRegion, isTeacherView, onLockViolation]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [applyDecorations, onChange, overlapsLockedRegion, isTeacherView, onLockViolation, theme]
   );
 
   // Update decorations when lockedRegions change
@@ -205,6 +225,13 @@ export default function MonacoWorkspace({
     }
   }, [value]);
 
+  // Sync Monaco theme when context theme changes
+  useEffect(() => {
+    if (monacoRef.current) {
+      monacoRef.current.editor.setTheme(theme === 'dark' ? 'luna-dark' : 'luna-light');
+    }
+  }, [theme]);
+
   return (
     <div className="flex h-full w-full">
       <MonacoEditor
@@ -212,7 +239,7 @@ export default function MonacoWorkspace({
         width="100%"
         language="c"
         value={value}
-        theme="luna-dark"
+        theme={theme === 'dark' ? 'luna-dark' : 'luna-light'}
         onMount={handleEditorDidMount}
         options={{
           fontSize: 14,
