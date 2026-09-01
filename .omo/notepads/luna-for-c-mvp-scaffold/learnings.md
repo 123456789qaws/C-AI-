@@ -1147,3 +1147,41 @@ Rewrote CheckpointWorkspace.tsx: removed demo teacher toggle + DEMO_STUDENT_ID, 
 - ✅ Student view: normal checkpoint flow with locked regions
 - ✅ Escalated: amber banner displayed with guidance text
 - ✅ Bearer token sent in verify request, no studentId in body
+
+## Improve 7: 教师/管理员页面（班级管理 + 学生选课 + 任务布置 + 批量导入）
+
+### Date: 2026-09-01
+
+### Summary
+Implemented teacher/admin pages for class management, student enrollment, task assignment, and admin bulk import:
+- Teacher dashboard extended with class management (create/list/view enrollments) + task assignment (select task/class/deadline)
+- Student classes page: join by code + view assigned tasks with deadline countdown
+- Teacher class detail page: enrollments table + create assignment + existing assignments
+- Admin page: functional ImportForm (JSON/CSV, file upload, drag-drop) + classes table + system config placeholder
+
+### Key Decisions
+1. **Three shared components extracted** — ClassCard, AssignmentForm, ImportForm under src/components/class/ for reuse across pages
+2. **Dashboard uses inline state** — Class management and assignment sections added to dashboard with local state (not separate page) to keep the single-page teacher experience
+3. **Student classes uses assignments data** — No dedicated /api/classes/student endpoint; instead fetches /api/assignments/student which implies enrollment. Simpler API surface.
+4. **ImportForm supports dual format** — JSON array or CSV lines, auto-detected by file extension; drag-drop + file upload for convenience
+5. **Deadline countdown** — Computed client-side from ISO string; urgent (< 2 days) shown in red, expired in grey
+6. **All pages use AuthGuard** — Consistent role checking: STUDENT for /classes, TEACHER/ADMIN for /classes/[id], ADMIN for /admin
+7. **Prettier auto-fix** — Dashboard's deeply nested JSX caused 14 prettier errors; `prettier --write` resolved all
+
+### Verification Results
+- ✅ pnpm lint — "No ESLint warnings or errors"
+- ✅ pnpm build — Compiled successfully, 23 pages generated
+- ✅ Route table: /classes (4.33 kB), /classes/[id] (4.29 kB dynamic), /dashboard (8.38 kB), /admin (5.17 kB)
+- ✅ All API routes registered: /api/classes, /api/classes/[id]/enrollments, /api/classes/join, /api/assignments, /api/assignments/student, /api/admin/import
+
+### Files Created/Modified
+- Created: src/components/class/ClassCard.tsx, AssignmentForm.tsx, ImportForm.tsx
+- Created: src/app/classes/page.tsx (student), src/app/classes/[id]/page.tsx (teacher detail)
+- Modified: src/app/(teacher)/dashboard/page.tsx (class management + assignment sections)
+- Modified: src/app/admin/page.tsx (functional import + classes table)
+
+### Gotchas
+1. **Prettier formatting on long JSX attributes** — `htmlFor` + `className` on label elements exceeded line width; prettier splits to multi-line. Always run prettier after writing JSX.
+2. **Table header text in JSX** — `<th>` with inline text like `班级名称` hit prettier line width; same fix as above.
+3. **Dashboard file is 1000+ lines** — Adding state/effects/JSX pushed it further; acceptable for MVP but should be split into smaller page sections in future.
+4. **No /api/classes/student endpoint** — Student class list derived from assignment data; if direct class list is needed later, add GET /api/classes/enrolled endpoint.
