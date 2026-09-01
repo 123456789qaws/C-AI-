@@ -170,6 +170,47 @@ export default function TeacherDashboard() {
   const [overridden, setOverridden] = useState<Set<string>>(new Set());
   const [csvLoading, setCsvLoading] = useState(false);
 
+  /* —— 班级管理 —— */
+  interface ClassItem {
+    id: string;
+    name: string;
+    code: string;
+    teacherId: string;
+    teacher?: { id: string; name: string } | null;
+    _count?: { enrollments: number; assignments: number };
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [newClassName, setNewClassName] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const [classCreating, setClassCreating] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const [enrolledStudents, setEnrolledStudents] = useState<
+    Array<{ id: string; name: string; role: string; joinedAt: string }>
+  >([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const [enrollmentsLoading, setEnrollmentsLoading] = useState(false);
+
+  /* —— 任务布置 —— */
+  interface AssignmentItem {
+    id: string;
+    taskId: string;
+    task?: { id: string; title: string } | null;
+    classId: string;
+    class?: { id: string; name: string; code: string } | null;
+    deadline: string | null;
+    assignedAt: string;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
+  const [assignTaskId, setAssignTaskId] = useState('');
+  const [assignClassId, setAssignClassId] = useState('');
+  const [assignDeadline, setAssignDeadline] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const [assignLoading, setAssignLoading] = useState(false);
+
   /* —— Step 1: 鉴权 —— */
   useEffect(() => {
     const token = getToken();
@@ -214,6 +255,118 @@ export default function TeacherDashboard() {
         setLogsSource('mock');
       });
   }, [role]);
+
+  /* —— 拉取班级列表 —— */
+  useEffect(() => {
+    if (!role || role === 'STUDENT' || role === 'UNAUTHENTICATED') return;
+
+    fetch('/api/classes', { headers: authHeaders() })
+      .then((r) => {
+        if (!r.ok) throw new Error('classes fetch failed');
+        return r.json();
+      })
+      .then((data) => {
+        setClasses(data.classes ?? []);
+      })
+      .catch(() => {
+        setClasses([]);
+      });
+  }, [role]);
+
+  /* —— 拉取任务布置列表 —— */
+  useEffect(() => {
+    if (!role || role === 'STUDENT' || role === 'UNAUTHENTICATED') return;
+
+    fetch('/api/assignments', { headers: authHeaders() })
+      .then((r) => {
+        if (!r.ok) throw new Error('assignments fetch failed');
+        return r.json();
+      })
+      .then((data) => {
+        setAssignments(data.assignments ?? []);
+      })
+      .catch(() => {
+        setAssignments([]);
+      });
+  }, [role]);
+
+  /* —— 创建班级 —— */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const handleCreateClass = useCallback(async () => {
+    if (!newClassName.trim()) return;
+    setClassCreating(true);
+    try {
+      const res = await fetch('/api/classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ name: newClassName.trim() }),
+      });
+      if (res.ok) {
+        setNewClassName('');
+        // Refresh classes list
+        const refreshRes = await fetch('/api/classes', { headers: authHeaders() });
+        if (refreshRes.ok) {
+          const data = await refreshRes.json();
+          setClasses(data.classes ?? []);
+        }
+      }
+    } catch {
+      console.error('[dashboard] create class failed');
+    } finally {
+      setClassCreating(false);
+    }
+  }, [newClassName]);
+
+  /* —— 查看班级学生 —— */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const handleViewEnrollments = useCallback(async (classId: string) => {
+    setSelectedClassId(classId);
+    setEnrollmentsLoading(true);
+    try {
+      const res = await fetch(`/api/classes/${classId}/enrollments`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setEnrolledStudents(data.students ?? []);
+      }
+    } catch {
+      console.error('[dashboard] fetch enrollments failed');
+    } finally {
+      setEnrollmentsLoading(false);
+    }
+  }, []);
+
+  /* —— 布置任务 —— */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
+  const handleAssignTask = useCallback(async () => {
+    if (!assignTaskId || !assignClassId) return;
+    setAssignLoading(true);
+    try {
+      const res = await fetch('/api/assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          taskId: assignTaskId,
+          classId: assignClassId,
+          deadline: assignDeadline ? new Date(assignDeadline).toISOString() : null,
+        }),
+      });
+      if (res.ok) {
+        setAssignTaskId('');
+        setAssignClassId('');
+        setAssignDeadline('');
+        // Refresh assignments
+        const refreshRes = await fetch('/api/assignments', { headers: authHeaders() });
+        if (refreshRes.ok) {
+          const data = await refreshRes.json();
+          setAssignments(data.assignments ?? []);
+        }
+      }
+    } catch {
+      console.error('[dashboard] assign task failed');
+    } finally {
+      setAssignLoading(false);
+    }
+  }, [assignTaskId, assignClassId, assignDeadline]);
 
   /* —— 计算热力图 —— */
   const heatData = useMemo(() => {
@@ -522,6 +675,260 @@ export default function TeacherDashboard() {
               </CardContent>
             </Card>
           </div>
+
+          {/* ====== 班级管理 ====== */}
+          <section id="classes" aria-labelledby="classes-title">
+            <h2 id="classes-title" className="text-lg font-semibold text-foreground mb-4">
+              班级管理
+            </h2>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* 创建班级 */}
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label
+                        htmlFor="new-class-name"
+                        className="mb-1 block text-xs font-medium text-muted-foreground"
+                      >
+                        班级名称
+                      </label>
+                      <input
+                        id="new-class-name"
+                        type="text"
+                        value={newClassName}
+                        onChange={(e) => setNewClassName(e.target.value)}
+                        placeholder="输入班级名称..."
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={classCreating || !newClassName.trim()}
+                      onClick={handleCreateClass}
+                    >
+                      {classCreating ? '创建中...' : '创建班级'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 班级列表 */}
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="max-h-[240px] overflow-y-auto space-y-2">
+                    {classes.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">暂无班级</p>
+                    ) : (
+                      classes.map((c) => (
+                        <div
+                          key={c.id}
+                          className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${
+                            selectedClassId === c.id
+                              ? 'border-primary bg-primary/5'
+                              : 'border-border/50 hover:bg-muted/50'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-foreground truncate">
+                              {c.name}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              <span className="font-mono">{c.code}</span>
+                              {c._count && (
+                                <span className="ml-2">
+                                  {c._count.enrollments}人 · {c._count.assignments}任务
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => handleViewEnrollments(c.id)}
+                            >
+                              名单
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => {
+                                window.location.href = `/classes/${c.id}`;
+                              }}
+                            >
+                              详情
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* 学生名单弹出 */}
+            {selectedClassId && (
+              <Card className="mt-4">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">
+                      学生名单 — {classes.find((c) => c.id === selectedClassId)?.name}
+                    </CardTitle>
+                    <Button variant="ghost" size="xs" onClick={() => setSelectedClassId(null)}>
+                      关闭
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {enrollmentsLoading ? (
+                    <p className="text-sm text-muted-foreground">加载中...</p>
+                  ) : enrolledStudents.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">暂无学生加入</p>
+                  ) : (
+                    <div className="overflow-x-auto max-h-[200px] overflow-y-auto">
+                      <table className="w-full text-sm" role="table">
+                        <thead className="sticky top-0 bg-card">
+                          <tr className="border-b border-border">
+                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                              学号
+                            </th>
+                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                              姓名
+                            </th>
+                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                              加入时间
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {enrolledStudents.map((s) => (
+                            <tr key={s.id} className="border-b border-border/50">
+                              <td className="px-3 py-2 font-mono text-foreground">{s.id}</td>
+                              <td className="px-3 py-2 text-foreground">{s.name}</td>
+                              <td className="px-3 py-2 text-muted-foreground">
+                                {new Date(s.joinedAt).toLocaleDateString('zh-CN')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </section>
+
+          {/* ====== 任务布置 ====== */}
+          <section id="assignments" aria-labelledby="assignments-title">
+            <h2 id="assignments-title" className="text-lg font-semibold text-foreground mb-4">
+              任务布置
+            </h2>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* 布置表单 */}
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="space-y-3">
+                    <div>
+                      <label
+                        htmlFor="assign-task"
+                        className="mb-1 block text-xs font-medium text-muted-foreground"
+                      >
+                        任务
+                      </label>
+                      <select
+                        id="assign-task"
+                        value={assignTaskId}
+                        onChange={(e) => setAssignTaskId(e.target.value)}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                      >
+                        <option value="">选择任务...</option>
+                        <option value="fib_L2">fib_L2 (递归 / Fibonacci)</option>
+                        <option value="linked_list_reverse">linked_list_reverse (链表反转)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="assign-class"
+                        className="mb-1 block text-xs font-medium text-muted-foreground"
+                      >
+                        班级
+                      </label>
+                      <select
+                        id="assign-class"
+                        value={assignClassId}
+                        onChange={(e) => setAssignClassId(e.target.value)}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                      >
+                        <option value="">选择班级...</option>
+                        {classes.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="assign-deadline"
+                        className="mb-1 block text-xs font-medium text-muted-foreground"
+                      >
+                        截止时间 (可选)
+                      </label>
+                      <input
+                        id="assign-deadline"
+                        type="datetime-local"
+                        value={assignDeadline}
+                        onChange={(e) => setAssignDeadline(e.target.value)}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={assignLoading || !assignTaskId || !assignClassId}
+                      onClick={handleAssignTask}
+                    >
+                      {assignLoading ? '布置中...' : '布置任务'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 已布置任务列表 */}
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="max-h-[240px] overflow-y-auto space-y-2">
+                    {assignments.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">暂无布置任务</p>
+                    ) : (
+                      assignments.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex items-center justify-between rounded-lg border border-border/50 px-3 py-2"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-foreground">
+                              {a.task?.title ?? a.taskId}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {a.class?.name ?? a.classId}
+                              {a.deadline && (
+                                <span className="ml-2">
+                                  截止: {new Date(a.deadline).toLocaleDateString('zh-CN')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </section>
 
           {/* 热力图 */}
           <section id="heatmap" aria-labelledby="heatmap-title">

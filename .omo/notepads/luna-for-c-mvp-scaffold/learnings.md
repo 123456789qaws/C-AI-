@@ -1119,3 +1119,31 @@ Built frontend auth infrastructure: AuthProvider (context + useAuth hook), login
 - Task 17: JWT identity in verify body (replace demo_student_001)
 - Frontend: class creation UI, student join flow, teacher assignment UI, admin import UI
 - E2E tests: login flow + role-based redirect + protected route guard
+
+## Improve 6: 学生 IDE 美化 + 移除教师切换 + 认证驱动 + 真实身份
+
+### Date: 2026-09-01
+
+### Summary
+Rewrote CheckpointWorkspace.tsx: removed demo teacher toggle + DEMO_STUDENT_ID, implemented auth-driven role-based views, fixed overflow issues, and beautified the entire component.
+
+### Key Decisions
+1. **useAuth() replaces isTeacherView toggle** — `const { user, token } = useAuth()` derives `isTeacher` from role (TEACHER/ADMIN/TA). No manual checkbox; role is truth from login.
+2. **Bearer token in verify** — `fetch('/api/checkpoint/verify', { headers: { Authorization: \`Bearer ${token}\` } })` with no `studentId` body field. Backend resolves identity from JWT.
+3. **401 handling** — verify route now returns 401 if token invalid; frontend shows toast + assistant message.
+4. **Escalated state tracking** — `hasEscalated` boolean tracks if current checkpoint is waiting for teacher review; shows amber banner with clear guidance.
+5. **Teacher auto-unlock** — `lockedRegions` only includes `HEADER_LOCKED_REGION` when `isTeacher` (all checkpoint regions unlocked for viewing).
+6. **Overflow fixes** — Guide question changed from `<textarea>` to `<div>` with `max-h-24 overflow-y-auto break-words`; checkpoint card titles use `max-w-[120px] truncate`; Card/CardContent use `overflow-hidden`.
+7. **Visual polish** — Cards use `rounded-xl shadow-sm`; consistent `border-border/50` dividers; amber escalation banner; toast `rounded-xl` matching card radius.
+
+### Files Modified
+- `src/components/ide/CheckpointWorkspace.tsx` — full rewrite (removed teacher checkbox, DEMO_STUDENT_ID, beautified overflow)
+- Pre-existing lint fixes: `ClassCard.tsx` (unused Button import), `classes/page.tsx` (unused activeAssignments), `dashboard/page.tsx` (eslint-disable for scaffold stubs)
+
+### Verification
+- ✅ pnpm build — Compiled successfully, 23 static pages
+- ✅ pnpm exec eslint src/components/ide/CheckpointWorkspace.tsx — 0 errors
+- ✅ Teacher view: all regions unlocked, verify/submit buttons disabled with hint
+- ✅ Student view: normal checkpoint flow with locked regions
+- ✅ Escalated: amber banner displayed with guidance text
+- ✅ Bearer token sent in verify request, no studentId in body
