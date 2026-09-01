@@ -805,6 +805,41 @@ Solidified hidden tests + full Playwright e2e for the checkpoint flow:
 - Task 21: run full e2e once Postgres is up (docker compose up -d db → migrate → pnpm run seed:reset → AI_PROVIDER=mock pnpm dev → pnpm run test:e2e)
 - Task 17: real login UI + JWT identity in verify body (replace demo_student_001 anonymous channel)
 
+## Task 22: README + .env.example + 扩展点文档
+
+### Date: 2026-09-01
+
+### Summary
+Human-onboarding docs for Luna-C:
+- README.md (rewrite, 161 lines): 简介 / 架构 ASCII / 技术栈 / Windows-first 快速开始 / 无 Docker 回退 / 常用脚本 / 环境变量表 / API 表 / 角色流程 / 扩展点 / FAQ / 目录结构
+- .env.example: 7 变量全注释 + 示例 + 必填标注，默认 AI_PROVIDER=mock，无真实密钥
+- docs/extension-points.md (new): 加任务 Gate DSL、换 Judge/AI/Auth provider、加隐藏测试、接学校 IAM
+- tasks/README.md 已验证存在（todo 11 交付物）
+
+### Key Decisions
+1. README 中文化，与 tasks/README.md / seed / AGENTS.md 语言一致。
+2. 所有命令对照 package.json 实写（pnpm dev/build/lint/judge:health/run seed:reset/run test:e2e + prisma migrate dev + prisma db seed）。
+3. .env.example 默认 AI_PROVIDER=mock，新人零密钥全流程可跑。
+4. 架构图显式标注「前端灰显仅 UX，后端 verify 是唯一权威」（硬门控）。
+
+### Verification Results
+- ✅ pnpm build：Compiled successfully，15 静态页 + 9 API 路由 + /dashboard；lint+type-check 在 build 内通过
+- ✅ README 161 行 < 200
+- ✅ 构建路由表与 README API 表完全一致
+- ✅ docs/ 新建，tasks/README.md 存在
+
+### Files Created/Modified
+- README.md (rewrite), .env.example (rewrite), docs/extension-points.md (new)
+- .omo/evidence/luna-for-c-mvp-scaffold/task-22-readme.md
+
+### Gotchas
+1. write 工具拒绝覆盖已存在文件（README 首写报错）→ 先 read 再 edit 全量替换。
+2. 以 pnpm build 输出路由表为准核对文档 API 表，不凭记忆。
+3. docker-compose POSTGRES_DB=luna_c 与 DATABASE_URL 库名一致，快速开始默认值零改动。
+
+### Next Steps
+- 每任务 commit（AGENTS.md 注意事项 1），版本节奏 push。
+
 ## Task 21: AGENTS.md（AI 代理守则，<150 行）
 
 ### Date: 2026-09-01
