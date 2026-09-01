@@ -9,14 +9,9 @@
       "guide_question": "逆置过程中，哪一个指针负责“暂存下一个节点”？为什么必须暂存？",
       "gates": [
         {
-          "type": "regex",
-          "rule": "(next|nxt|tmp).*(保存|暂存|备份)",
-          "weight": 0.4
-        },
-        {
           "type": "ai_socratic",
           "rubric": "回答需点出“断链前保存 next，否则丢失后继”",
-          "weight": 0.6
+          "weight": 1.0
         }
       ],
       "pass_threshold": 0.7,

@@ -9,14 +9,9 @@
       "guide_question": "斐波那契递归的终止条件是什么？n 为 0 和 1 时分别应返回什么？",
       "gates": [
         {
-          "type": "regex",
-          "rule": "(n\\s*<=?\\s*[01]|边界|base\\s*case).{0,20}(返回|return)",
-          "weight": 0.4
-        },
-        {
           "type": "ai_socratic",
           "rubric": "回答需点出 n<=1 时直接返回 n，否则递归会无限下钻导致栈溢出",
-          "weight": 0.6
+          "weight": 1.0
         }
       ],
       "pass_threshold": 0.7,

@@ -702,6 +702,109 @@ Consolidated AiInteractionLog writes into a shared logger and added the replay/e
 - Task 19 (blocks on this): consume /api/logs timeline for teacher dashboard replay; CSV export button
 - When Postgres is up: migrate deploy + seed, re-run smoke for real 2-record timeline + CSV download
 
+## Task: 扩展数据模型 - Role.ADMIN + Class + ClassEnrollment + TaskAssignment
+
+### Date: 2026-09-01
+
+### Summary
+Extended the Prisma data model with:
+- Role enum: added ADMIN value
+- Class model: id, name, code (unique), teacherId, createdAt, relations to teacher (User), enrollments, assignments
+- ClassEnrollment model: id, classId, studentId, joinedAt, unique constraint on [classId, studentId], relations to Class and User (student)
+- TaskAssignment model: id, taskId, classId, teacherId, deadline (optional), assignedAt, relations to Class, Task, and User (teacher)
+- User model: added reverse relations classesTaught (Class[]), enrollments (ClassEnrollment[]), assignments (TaskAssignment[])
+- Task model: added reverse relation assignments (TaskAssignment[])
+
+Generated migration SQL via `prisma migrate diff` (PostgreSQL unavailable locally). Updated seed.ts with:
+- ADMIN user (a0001, password 123456)
+- Sample class (class-demo, code CLS001, teacher t0001)
+- ClassEnrollment for s0001, s0002, s0003
+- TaskAssignment (fib_L2 → class-demo, deadline 7 days from now)
+
+### Key Decisions
+1. **Disambiguated User relations** - Both Class.teacher and ClassEnrollment.student point to User; used explicit @relation("ClassTeacher") name on Class.teacher to avoid ambiguity with TaskAssignment.teacher
+2. **Cascade deletes** - Class.teacher onDelete: Cascade (teacher deleted → class deleted); ClassEnrollment and TaskAssignment cascade on class/task/teacher deletion
+3. **Migration without DB** - Used `prisma migrate diff --from-empty --to-schema-datamodel --script` to generate SQL offline since no local PostgreSQL
+4. **Seed idempotency** - Used upsert with unique constraints (Class.code, ClassEnrollment.classId_studentId, TaskAssignment.id) for re-runnable seed
+
+### Commands Run
+```bash
+# Generate migration SQL (offline)
+pnpm exec prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script
+
+# Create migration directory and save SQL
+mkdir -p prisma/migrations/20260901000000_add_classes_assignments
+# Write migration.sql
+
+# Regenerate Prisma Client
+pnpm prisma generate
+
+# Verify build
+pnpm build
+```
+
+### Verification Results
+- ✅ pnpm prisma generate - Prisma Client generated successfully with new models and ADMIN enum
+- ✅ pnpm build - Compiled successfully, static pages generated (15 routes)
+- ✅ Migration SQL created at prisma/migrations/20260901000000_add_classes_assignments/migration.sql
+- ✅ Schema includes all required models with proper relations and indexes
+
+### Files Created/Modified
+- prisma/schema.prisma - Added ADMIN to Role enum, Class, ClassEnrollment, TaskAssignment models, User/Task reverse relations
+- prisma/migrations/20260901000000_add_classes_assignments/migration.sql - Full migration SQL
+- prisma/seed.ts - Added ADMIN user, sample class, enrollments, task assignment
+
+### Gotchas
+1. **TypeScript errors before generate** - seed.ts showed LSP errors for ADMIN enum and new model accessors (class, classEnrollment, taskAssignment) until `pnpm prisma generate` was run
+2. **Pre-existing schema.ts prettier issue** - Build initially failed on a prettier formatting issue in src/lib/checkpoint/schema.ts (unrelated to this task); fixed by reformatting the GateSchema discriminated union line
+3. **Migration naming** - Used timestamp prefix 20260901000000 for chronological ordering
+
+### Next Steps
+- When PostgreSQL is available: run `pnpm prisma migrate deploy` to apply migrations
+- Run `pnpm prisma db seed` to populate new tables
+- Build API endpoints for class management, enrollment, and task assignment
+
+## Task: 移除 regex gate，判题直接交给 AI（ai_socratic）
+
+### Date: 2026-09-01
+
+### Summary
+Removed the regex gate type from the checkpoint DSL, simplifying the verification funnel from three tiers (regex → AI → test_pass) to two tiers (AI → test_pass). All cp1 checkpoints now use pure ai_socratic gates with weight 1.0.
+
+### Key Decisions
+1. **Schema simplification** - Removed `RegexGateSchema` and its type export; `GateSchema` discriminated union now only contains `SocraticGateSchema` and `TestPassGateSchema`
+2. **Evaluation logic cleanup** - Removed the entire `case 'regex'` branch from `evaluateGate()` switch; no more `gate.rule` references
+3. **Task JSON updates** - Both `fib_L2.json` and `linked_list_reverse.json` cp1 gates changed from `[regex(0.4) + ai_socratic(0.6)]` to `[ai_socratic(1.0)]` with preserved rubric intent
+4. **Verify route updates** - Removed regex fallback in model field (`gate.model ?? 'unknown'`), updated comments from "三级漏斗" to "两级漏斗"
+
+### Commands Run
+```bash
+# Edit schema.ts, evaluate.ts, fib_L2.json, linked_list_reverse.json, verify/route.ts
+pnpm build
+pnpm lint
+pnpm exec tsx scripts/verify-tasks.ts  # verified both tasks parse correctly
+```
+
+### Verification Results
+- ✅ pnpm build - Compiled successfully, static pages generated (15 routes)
+- ✅ pnpm lint - "No ESLint warnings or errors"
+- ✅ Task JSON parsing - Both fib_L2 and linked_list_reverse load with cp1: ai_socratic(1.0), cp2: test_pass(1.0)
+
+### Files Modified
+- src/lib/checkpoint/schema.ts - Removed RegexGateSchema, updated GateSchema union, removed RegexGate type export
+- src/lib/checkpoint/evaluate.ts - Removed regex case from evaluateGate switch, updated doc comment
+- tasks/fib_L2.json - cp1 gates: pure ai_socratic weight 1.0
+- tasks/linked_list_reverse.json - cp1 gates: pure ai_socratic weight 1.0
+- src/app/api/checkpoint/verify/route.ts - Removed regex fallback in model field, updated funnel comments
+
+### Gotchas
+1. **Prettier formatting** - The GateSchema discriminated union array needed single-line formatting to pass prettier
+2. **TypeScript exhaustiveness** - Removing the regex case from the switch was safe because Gate type no longer includes 'regex'; TypeScript would error if any case was missing
+3. **Verify route model fallback** - The `gate.model ?? (gate.type === 'regex' ? 'regex-engine' : 'unknown')` pattern was a leftover from the three-tier design; simplified to just `'unknown'`
+
+### Next Steps
+- Task 13: 前端 Checkpoint 交互与解锁联动（verify 接线 + 渐进解锁 + 篡改回滚）
+
 ## Task 13: 前端 Checkpoint 交互与解锁联动（verify 接线 + 渐进解锁 + 篡改回滚）
 
 ### Date: 2026-08-31

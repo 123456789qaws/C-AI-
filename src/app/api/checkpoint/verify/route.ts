@@ -14,15 +14,14 @@ import { evaluateCheckpoint, type EvaluateResult } from '@/lib/checkpoint/evalua
 import type { Checkpoint, Task } from '@/lib/checkpoint/schema';
 
 /**
- * POST /api/checkpoint/verify —— 后端硬锁 + 三级漏斗。
+ * POST /api/checkpoint/verify —— 后端硬锁 + 两级漏斗。
  *
  * 1. 硬锁：对比提交 code 与关卡 unlock.editorRegion 行号范围，锁定行被写入
  *    内容（或与 baseline 模板不一致）→ 403 {passed:false, escalated:true}，
  *    教师大盘可见「异常提交」。
- * 2. 正则初筛：regex gate 对回答/代码做 RegExp 测试。
- * 3. AI 复核：ai_socratic gate 调 AIProvider 按 rubric 判题，
+ * 2. AI 复核：ai_socratic gate 调 AIProvider 按 rubric 判题，
  *    confidence < 0.7 → escalated（不自动过关，转教师复核）。
- * 4. test_pass：读隐藏测试 JSON → judge-lite 真编译真运行，全 AC 才过；
+ * 3. test_pass：读隐藏测试 JSON → judge-lite 真编译真运行，全 AC 才过；
  *    期望值绝不回传（仅回传失败用例的性质描述）。
  *
  * 每次验证（含越权拒收）都写 AiInteractionLog（全字段）+ upsert CheckpointProgress。
@@ -237,7 +236,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // 4) 三级漏斗求值：regex 初筛 → AI 复核 → test_pass 真判题
+  // 4) 两级漏斗求值：AI 复核 → test_pass 真判题
   let result: EvaluateResult;
   try {
     result = await evaluateCheckpoint(checkpoint, {
@@ -265,7 +264,7 @@ export async function POST(req: Request) {
       aiReply: gate.reply,
       gateResult: gate.escalated ? 'escalated' : gate.passed ? 'passed' : 'failed',
       gateType: gate.type,
-      model: gate.model ?? (gate.type === 'regex' ? 'regex-engine' : 'unknown'),
+      model: gate.model ?? 'unknown',
       tokens: gate.tokens,
       confidence: gate.confidence,
       codeBefore,

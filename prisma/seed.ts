@@ -7,6 +7,7 @@ const prisma = new PrismaClient();
 const DEFAULT_PASSWORD = '123456';
 
 const SEED_USERS: { id: string; role: Role; name: string }[] = [
+  { id: 'a0001', role: 'ADMIN', name: '管理员' },
   { id: 't0001', role: 'TEACHER', name: '王老师' },
   { id: 't0002', role: 'TEACHER', name: '李老师' },
   { id: 's0001', role: 'STUDENT', name: '张三' },
@@ -127,6 +128,35 @@ async function main() {
     });
   }
   console.log(`Seeded ${SEED_TASKS.length} tasks`);
+
+  // Seed Class
+  const classDemo = await prisma.class.upsert({
+    where: { code: 'CLS001' },
+    update: { name: '示例班级', teacherId: 't0001' },
+    create: { id: 'class-demo', name: '示例班级', code: 'CLS001', teacherId: 't0001' },
+  });
+  console.log(`Seeded class: ${classDemo.name} (${classDemo.code})`);
+
+  // Seed ClassEnrollment for s0001, s0002, s0003
+  const studentIds = ['s0001', 's0002', 's0003'];
+  for (const studentId of studentIds) {
+    await prisma.classEnrollment.upsert({
+      where: { classId_studentId: { classId: classDemo.id, studentId } },
+      update: {},
+      create: { classId: classDemo.id, studentId },
+    });
+  }
+  console.log(`Seeded ${studentIds.length} class enrollments`);
+
+  // Seed TaskAssignment (fib_L2 -> class-demo, deadline 7 days from now)
+  const deadline = new Date();
+  deadline.setDate(deadline.getDate() + 7);
+  await prisma.taskAssignment.upsert({
+    where: { id: 'assignment-fib_L2-class-demo' },
+    update: { taskId: 'fib_L2', classId: classDemo.id, teacherId: 't0001', deadline },
+    create: { id: 'assignment-fib_L2-class-demo', taskId: 'fib_L2', classId: classDemo.id, teacherId: 't0001', deadline },
+  });
+  console.log(`Seeded task assignment: fib_L2 -> ${classDemo.name} (deadline: ${deadline.toISOString()})`);
 }
 
 main()

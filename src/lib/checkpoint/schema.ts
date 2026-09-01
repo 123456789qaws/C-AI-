@@ -8,7 +8,6 @@
  *
  * A checkpoint passes when the weighted sum of its gate scores reaches
  * `pass_threshold`. Gate types:
- *  - regex:       answer text matched against `rule` (frontend/backend text gate)
  *  - ai_socratic: LLM judges the answer against `rubric` (JSON {pass, confidence})
  *  - test_pass:   student's C code must pass the hidden tests in `tests`
  *
@@ -21,13 +20,6 @@ import { z } from 'zod';
 
 /** Shared weight field: contribution of this gate to the checkpoint score. */
 const weight = z.number().min(0).max(1);
-
-export const RegexGateSchema = z.object({
-  type: z.literal('regex'),
-  /** RegExp applied to the student's answer text (verbatim, no flags). */
-  rule: z.string().min(1),
-  weight,
-});
 
 export const SocraticGateSchema = z.object({
   type: z.literal('ai_socratic'),
@@ -44,11 +36,7 @@ export const TestPassGateSchema = z.object({
 });
 
 /** Discriminated union: `type` decides which payload fields are legal. */
-export const GateSchema = z.discriminatedUnion('type', [
-  RegexGateSchema,
-  SocraticGateSchema,
-  TestPassGateSchema,
-]);
+export const GateSchema = z.discriminatedUnion('type', [SocraticGateSchema, TestPassGateSchema]);
 
 /** `unlock.editorRegion` = the [startLine, endLine] slice the student may edit. */
 export const UnlockSchema = z
@@ -93,7 +81,6 @@ export const TaskSchema = z.object({
 
 // ---- Inferred types (single source: the schema) ----
 
-export type RegexGate = z.infer<typeof RegexGateSchema>;
 export type SocraticGate = z.infer<typeof SocraticGateSchema>;
 export type TestPassGate = z.infer<typeof TestPassGateSchema>;
 export type Gate = z.infer<typeof GateSchema>;

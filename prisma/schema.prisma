@@ -15,13 +15,17 @@ enum Role {
   STUDENT
   TEACHER
   TA
+  ADMIN
 }
 
 model User {
-  id           String   @id // 学号/工号
-  role         Role
-  name         String
-  passwordHash String?  @db.Text // bcrypt hash, null for school-IAM users
+  id             String   @id // 学号/工号
+  role           Role
+  name           String
+  passwordHash   String?  @db.Text // bcrypt hash, null for school-IAM users
+  classesTaught  Class[]  @relation("ClassTeacher")
+  enrollments    ClassEnrollment[]
+  assignments    TaskAssignment[]
 }
 
 model Task {
@@ -29,6 +33,44 @@ model Task {
   title       String
   checkpoints Json     // 存 Gate DSL
   hiddenTests Json
+  assignments TaskAssignment[]
+}
+
+model Class {
+  id           String   @id @default(cuid())
+  name         String
+  code         String   @unique
+  teacherId    String
+  createdAt    DateTime @default(now())
+  teacher      User     @relation("ClassTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  enrollments  ClassEnrollment[]
+  assignments  TaskAssignment[]
+}
+
+model ClassEnrollment {
+  id        String   @id @default(cuid())
+  classId   String
+  studentId String
+  joinedAt  DateTime @default(now())
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, studentId])
+}
+
+model TaskAssignment {
+  id          String   @id @default(cuid())
+  taskId      String
+  classId     String
+  teacherId   String
+  deadline    DateTime?
+  assignedAt  DateTime @default(now())
+  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  teacher     User     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([classId])
+  @@index([taskId])
 }
 
 model AiInteractionLog {

@@ -1,13 +1,12 @@
 import 'server-only';
 
 /**
- * Checkpoint 判题引擎 —— 三级漏斗的后两级（regex 初筛之外的 AI 复核与真实判题）。
+ * Checkpoint 判题引擎 —— 两级漏斗（AI 复核与真实判题）。
  *
  * evaluateCheckpoint(checkpoint, {code, studentAnswer}) 逐 gate 求值：
- *  - regex:      rule 对「学生回答 OR 代码」做 RegExp 测试（任一命中即过）
  *  - ai_socratic: 直接调用 AIProvider 按 rubric 判题，返回 {pass, confidence, reply}；
  *                 confidence < AI_CONFIDENCE_ESCALATE → escalated（不计入得分，转人工）
- *  - test_pass:  读隐藏测试 JSON → runHiddenTests 真编译真运行，全部 AC 才过；
+ *  - test_pass:   读隐藏测试 JSON → runHiddenTests 真编译真运行，全部 AC 才过；
  *                期望值绝不外泄（harness 保证，本层只转述「性质描述」hint）
  *
  * 权重求和：score = Σ(通过 gate 的 weight) / Σ(全部 weight)，passed = score >= pass_threshold。
@@ -208,33 +207,6 @@ async function evaluateGate(
   options?: EvaluateOptions
 ): Promise<GateEvaluation> {
   switch (gate.type) {
-    case 'regex': {
-      let ruleRe: RegExp;
-      try {
-        ruleRe = new RegExp(gate.rule);
-      } catch {
-        return {
-          type: 'regex',
-          weight: gate.weight,
-          passed: false,
-          reason: `正则规则非法，无法判定：${gate.rule}`,
-          escalated: true,
-          error: 'invalid_regex_rule',
-        };
-      }
-      // 任务 DSL 约定 rule 匹配回答文本；同时对代码匹配，二者任一命中即过
-      const matched = ruleRe.test(studentAnswer) || ruleRe.test(code);
-      return {
-        type: 'regex',
-        weight: gate.weight,
-        passed: matched,
-        reason: matched ? '正则初筛命中' : '正则初筛未命中',
-        escalated: false,
-        promptText: `规则: ${gate.rule}\n学生回答: ${studentAnswer.slice(0, 2000)}`,
-        model: 'regex-engine',
-      };
-    }
-
     case 'ai_socratic': {
       const provider = options?.ai ?? aiProvider;
       const answerTrim = studentAnswer.trim();
