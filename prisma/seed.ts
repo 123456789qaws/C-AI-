@@ -17,20 +17,21 @@ const SEED_USERS: { id: string; role: Role; name: string }[] = [
   { id: 's0005', role: 'STUDENT', name: '陈七' },
 ];
 
-// Checkpoints match the Gate DSL shape from 项目分析文档.md:8.1:
-// gates[].type ∈ regex | ai_socratic | test_pass, weight + pass_threshold,
-// unlock.editorRegion, on_fail.ai_followup / valgrind_hint.
+// Checkpoints mirror tasks/*.json (tasks 真源，prisma 仅镜像)
+// v2: kind ai/code + aiChain / initialCode / testsPath / allowAIGenerateTests
 const FIB_L2_CHECKPOINTS = [
   {
     id: 'cp1',
     title: '递归边界条件',
     guide_question: '斐波那契递归的终止条件是什么？n 为 0 和 1 时分别应返回什么？',
+    kind: 'ai',
+    intro: '思考递归何时停止，避免无限下钻。',
+    aiChain: ['n为0/1时返回?', '若缺少边界会发生什么？栈会如何增长？', '如何用一句话描述出口条件？'],
     gates: [
-      { type: 'regex', rule: '(n\\s*<=?\\s*[01]|边界|base\\s*case).{0,20}(返回|return)', weight: 0.4 },
       {
         type: 'ai_socratic',
         rubric: '回答需点出 n<=1 时直接返回 n，否则递归会无限下钻导致栈溢出',
-        weight: 0.6,
+        weight: 1.0,
       },
     ],
     pass_threshold: 0.7,
@@ -41,6 +42,11 @@ const FIB_L2_CHECKPOINTS = [
     id: 'cp2',
     title: '递归实现与隐藏测试',
     guide_question: '写出完整的 fib 递归函数，并跑通隐藏测试',
+    kind: 'code',
+    initialCode: '// TODO: 实现 int fib(int n)\n// 提示：先处理 n<=1 的边界，再返回 fib(n-1)+fib(n-2)\nint fib(int n) {\n  // 请在此填入你的实现\n}\n',
+    testsPath: 'hidden_tests/fib_2.json',
+    tests: 'hidden_tests/fib_2.json',
+    allowAIGenerateTests: false,
     gates: [{ type: 'test_pass', tests: 'hidden_tests/fib_2.json', weight: 1.0 }],
     unlock: { editorRegion: [16, 30] },
     on_fail: { valgrind_hint: true },
@@ -52,12 +58,14 @@ const LINKED_LIST_CHECKPOINTS = [
     id: 'cp1',
     title: '理解指针所有权',
     guide_question: '逆置过程中，哪一个指针负责“暂存下一个节点”？为什么必须暂存？',
+    kind: 'ai',
+    intro: '断链前若丢失 next，链表后半段将不可达。',
+    aiChain: ['哪个指针暂存下一个节点？', '若不暂存，cur->next 改写后会怎样？', '谁分配/谁释放该暂存指针指向的内存？'],
     gates: [
-      { type: 'regex', rule: '(next|nxt|tmp).*(保存|暂存|备份)', weight: 0.4 },
       {
         type: 'ai_socratic',
         rubric: '回答需点出“断链前保存 next，否则丢失后继”',
-        weight: 0.6,
+        weight: 1.0,
       },
     ],
     pass_threshold: 0.7,
@@ -68,6 +76,12 @@ const LINKED_LIST_CHECKPOINTS = [
     id: 'cp2',
     title: '尾递归/迭代实现',
     guide_question: '写出迭代版三指针框架，跑通隐藏测试',
+    kind: 'code',
+    initialCode:
+      '// TODO: 逆置单链表\n// struct Node { int val; struct Node *next; };\n// struct Node* reverseList(struct Node* head) {\n//   struct Node *prev = NULL, *cur = head, *next = NULL;\n//   // 请补全循环体\n// }\n',
+    testsPath: 'hidden_tests/linked_list_3.json',
+    tests: 'hidden_tests/linked_list_3.json',
+    allowAIGenerateTests: true,
     gates: [{ type: 'test_pass', tests: 'hidden_tests/linked_list_3.json', weight: 1.0 }],
     unlock: { editorRegion: [26, 50] },
     on_fail: { valgrind_hint: true },
@@ -97,12 +111,16 @@ const SEED_TASKS = [
   {
     id: 'fib_L2',
     title: '斐波那契数列（递归）',
+    intro: '斐波那契数列定义为 fib(0)=0, fib(1)=1, fib(n)=fib(n-1)+fib(n-2)。本任务先理解递归边界，再完成递归实现。',
+    checkpointMode: 'sequential',
     checkpoints: FIB_L2_CHECKPOINTS,
     hiddenTests: FIB_HIDDEN_TESTS,
   },
   {
     id: 'linked_list_reverse',
     title: '单链表逆置',
+    intro: '单链表逆置要求在 O(1) 额外空间内就地反转指针方向，关键在于断链前暂存后继。先回答指针所有权问题，再完成三指针实现。',
+    checkpointMode: 'sequential',
     checkpoints: LINKED_LIST_CHECKPOINTS,
     hiddenTests: LINKED_LIST_HIDDEN_TESTS,
   },
@@ -123,8 +141,21 @@ async function main() {
   for (const t of SEED_TASKS) {
     await prisma.task.upsert({
       where: { id: t.id },
-      update: { title: t.title, checkpoints: t.checkpoints, hiddenTests: t.hiddenTests },
-      create: t,
+      update: {
+        title: t.title,
+        intro: t.intro,
+        checkpointMode: t.checkpointMode,
+        checkpoints: t.checkpoints,
+        hiddenTests: t.hiddenTests,
+      },
+      create: {
+        id: t.id,
+        title: t.title,
+        intro: t.intro,
+        checkpointMode: t.checkpointMode,
+        checkpoints: t.checkpoints,
+        hiddenTests: t.hiddenTests,
+      },
     });
   }
   console.log(`Seeded ${SEED_TASKS.length} tasks`);

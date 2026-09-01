@@ -26,14 +26,19 @@ model User {
   classesTaught  Class[]  @relation("ClassTeacher")
   enrollments    ClassEnrollment[]
   assignments    TaskAssignment[]
+  authoredTasks  Task[]   @relation("TaskAuthor")
 }
 
 model Task {
-  id          String   @id // fib_L2
-  title       String
-  checkpoints Json     // 存 Gate DSL
-  hiddenTests Json
-  assignments TaskAssignment[]
+  id             String   @id // fib_L2
+  title          String
+  intro          String?  @db.Text
+  checkpointMode String   @default("sequential") @db.VarChar(20)
+  authorId       String?
+  author         User?    @relation("TaskAuthor", fields: [authorId], references: [id])
+  checkpoints    Json     // 存 Gate DSL
+  hiddenTests    Json
+  assignments    TaskAssignment[]
 }
 
 model Class {

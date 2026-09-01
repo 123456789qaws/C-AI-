@@ -4,6 +4,7 @@
 3. 间隔一定版本后推送至github : git push
 4. powershall 如果难用, 可以适当用 git bash
 5. 当同一指令反复执行并报错次数超过10, 暂停执行并将报错返回主会话分析
+6. 别忘记如果需要, 同步更新README.md
 
 ## 项目规则 (Project Rules)
 - C 判题用 `gcc -std=c11 -Wall -Wextra -O2` (judge-lite: docker gcc:13 / 本地 MinGW)

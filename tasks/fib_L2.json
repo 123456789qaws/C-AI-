@@ -2,11 +2,16 @@
   "id": "fib_L2",
   "title": "斐波那契数列（递归）",
   "description": "实现 int fib(int n)：先想清递归终止条件，再写出完整递归函数并通过隐藏测试。",
+  "intro": "斐波那契数列定义为 fib(0)=0, fib(1)=1, fib(n)=fib(n-1)+fib(n-2)。本任务先理解递归边界，再完成递归实现。",
+  "checkpointMode": "sequential",
   "checkpoints": [
     {
       "id": "cp1",
       "title": "递归边界条件",
       "guide_question": "斐波那契递归的终止条件是什么？n 为 0 和 1 时分别应返回什么？",
+      "kind": "ai",
+      "intro": "思考递归何时停止，避免无限下钻。",
+      "aiChain": ["n为0/1时返回?", "若缺少边界会发生什么？栈会如何增长？", "如何用一句话描述出口条件？"],
       "gates": [
         {
           "type": "ai_socratic",
@@ -27,6 +32,11 @@
       "id": "cp2",
       "title": "递归实现与隐藏测试",
       "guide_question": "写出完整的 fib 递归函数，并跑通隐藏测试",
+      "kind": "code",
+      "initialCode": "// TODO: 实现 int fib(int n)\n// 提示：先处理 n<=1 的边界，再返回 fib(n-1)+fib(n-2)\nint fib(int n) {\n  // 请在此填入你的实现\n}\n",
+      "testsPath": "hidden_tests/fib_2.json",
+      "tests": "hidden_tests/fib_2.json",
+      "allowAIGenerateTests": false,
       "gates": [
         {
           "type": "test_pass",

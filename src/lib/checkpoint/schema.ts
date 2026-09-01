@@ -15,6 +15,9 @@
  *  - ai_followup: extra Socratic question appended to the AI tutor prompt
  *  - valgrind_hint: true when the task is memory-sensitive (crash context + leak
  *    clues get injected into the tutor conversation)
+ *
+ * v2 extend: checkpoint kinds AI链 (teacher-provided question chain) 与
+ * 代码题(初始代码+测试样例+AI生成开关)，全部 optional 向后兼容。
  */
 import { z } from 'zod';
 
@@ -67,6 +70,21 @@ export const CheckpointSchema = z.object({
   pass_threshold: z.number().min(0).max(1),
   unlock: UnlockSchema,
   on_fail: OnFailSchema.optional(),
+  // ---- v2 optional fields (backward compatible) ----
+  /** Checkpoint kind: AI链 vs 代码题；缺省按 gates 推断 */
+  kind: z.enum(['ai', 'code']).optional(),
+  /** Checkpoint-level introduction / extended description */
+  intro: z.string().optional(),
+  description: z.string().optional(),
+  /** AI链问题列表（teacher 提供） */
+  aiChain: z.array(z.string().min(1)).optional(),
+  /** 代码题初始代码片段 */
+  initialCode: z.string().optional(),
+  /** 代码题测试文件路径（alias: tests） */
+  testsPath: z.string().min(1).optional(),
+  tests: z.string().min(1).optional(),
+  /** 是否允许 AI 生成测试样例 */
+  allowAIGenerateTests: z.boolean().optional(),
 });
 
 export const TaskSchema = z.object({
@@ -76,6 +94,9 @@ export const TaskSchema = z.object({
     .regex(/^[A-Za-z0-9_-]+$/, 'task id 仅允许字母/数字/_/-'),
   title: z.string().min(1),
   description: z.string().min(1).optional(),
+  intro: z.string().optional(),
+  checkpointMode: z.enum(['sequential', 'free']).default('sequential'),
+  authorId: z.string().min(1).optional(),
   checkpoints: z.array(CheckpointSchema).min(1),
 });
 

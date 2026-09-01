@@ -1185,3 +1185,48 @@ Implemented teacher/admin pages for class management, student enrollment, task a
 2. **Table header text in JSX** — `<th>` with inline text like `班级名称` hit prettier line width; same fix as above.
 3. **Dashboard file is 1000+ lines** — Adding state/effects/JSX pushed it further; acceptable for MVP but should be split into smaller page sections in future.
 4. **No /api/classes/student endpoint** — Student class list derived from assignment data; if direct class list is needed later, add GET /api/classes/enrolled endpoint.
+
+## Improve-v2 Datamodel: Task intro + checkpointMode + AI链/代码题
+
+### Date: 2026-09-02
+
+### Summary
+Extended data model for v2 checkpoint kinds:
+- prisma Task: intro @db.Text, checkpointMode @default(sequential) @db.VarChar(20), authorId FK->User @relation(TaskAuthor)
+- zod Checkpoint: optional kind(ai|code), intro, description, aiChain[], initialCode, testsPath(alias tests), tests, allowAIGenerateTests
+- zod Task: optional intro, checkpointMode enum sequential|free default sequential, authorId
+- tasks JSON: fib_L2 + linked_list_reverse补全 intro/mode/kind/aiChain/initialCode/testsPath
+- migration offline via prisma migrate diff old->new, seed同步
+
+### Key Decisions
+1. **All new fields optional/default** - Task.intro nullable, checkpointMode default sequential, authorId nullable, checkpoint kind/aiChain/initialCode/testsPath/allowAIGenerateTests optional; 旧JSON校验通过。
+2. **tests alias** - checkpoint同时接受 testsPath 和 tests（min1 string），build时任务与gate共存；gate tests字段保留权威。
+3. **Migration offline** - DB不可用，造 schema_old.prisma快照(无新列)，diff生成仅3列+FK的增量SQL，落盘 20260902000000_add_task_intro_mode_author/migration.sql
+4. **Seed与JSON一致** - 移除已废弃regex gate(此前已删)，FIB/LINKED checkpoints与tasks JSON mirror，保持seed可重跑。
+
+### Commands Run
+```bash
+pnpm exec prisma migrate diff --from-schema-datamodel <old> --to-schema-datamodel prisma/schema.prisma --script
+pnpm prisma generate
+pnpm exec tsx TaskSchema check tasks/*.json + old compat
+pnpm build  # 23 pages
+```
+
+### Verification Results
+- ✅ pnpm prisma generate v5.22.0
+- ✅ tsx: fib_L2 PASS (intro true, mode sequential, cp1 ai, cp2 code 102 chars), linked_list_reverse PASS, old compat true
+- ✅ pnpm build ✓ 23 pages / middleware 26.9kB
+- ✅ pnpm lint No warnings
+
+### Gotchas
+1. **prisma migrate diff needs shadow DB for --from-migrations** - 用 --from-schema-datamodel <old snapshot> 绕过，DB不可用时唯一可行路径。
+2. **seed.ts LSP假报错** - prisma generate后 tsc passes但LSP缓存旧client报intro不存在；build以tsc为准。
+3. **User双relation消歧** - Task.author用 @relation(TaskAuthor) 显式命名，避免与ClassTeacher/TaskAssignment.teacher冲突。
+
+### Files Created/Modified
+- prisma/schema.prisma (Task + User.authoredTasks)
+- src/lib/checkpoint/schema.ts (checkpoint/task v2 optional fields)
+- tasks/fib_L2.json, tasks/linked_list_reverse.json (intro/mode/kind/aiChain/initialCode/testsPath)
+- prisma/seed.ts (sync)
+- prisma/migrations/20260902000000_add_task_intro_mode_author/migration.sql
+- .omo/evidence/improve-v2-datamodel.md
