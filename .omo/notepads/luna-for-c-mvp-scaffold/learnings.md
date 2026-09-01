@@ -738,3 +738,34 @@ Wire /api/checkpoint/verify into the IDE page end-to-end:
 - Task 14: GET /api/tasks/:id to replace inline TASK_META (remove MVP placeholder)
 - Task 17: JWT identity replaces DEMO_STUDENT_ID + remove middleware anonymous channel
 - Todo 20: finalize hidden_tests/*.json + e2e
+
+## Task 19: 教师大盘占位实现（热力与时间线）
+
+### Date: 2026-09-01
+
+### Summary
+Successfully implemented the teacher dashboard with real data fetching from /api/logs, heatmap aggregation, 3-track timeline, override release, and CSV export:
+- src/app/(teacher)/dashboard/page.tsx (rewired): Auth guard (STUDENT→无权限), fetch /api/logs with bearer token, client-side heatmap aggregation (per taskId: submissions/passRate/escalatedRate), 3-track timeline (codeDiff + AI dialogue + gateResult), per-row override button, CSV export via /api/logs?format=csv blob download. MOCK_* retained as DB-down fallback with "演示数据" badge.
+- src/app/api/checkpoint/override/route.ts (new): POST endpoint, verifyToken role TEACHER/TA only (403 for student), body {studentId, taskId, checkpointId}, prisma.checkpointProgress.upsert passed=true unlockedAt=now.
+
+### Key Decisions
+1. **Auth-first architecture**: On mount, dashboard calls /api/auth/me; STUDENT sees "无权限" lock screen; UNAUTHENTICATED sees "请先登录". No class data leaks to students.
+2. **Client-side heatmap aggregation**: Heat data computed from raw /api/logs rows (groupBy taskId → count submissions/passed/failed/escalated → compute rates). Keeps server simple; sufficient for MVP scale.
+3. **3-track timeline**: Each log entry displays up to 3 color-coded tracks: blue=代码变更 (codeDiff present), purple=AI对话 (promptText/aiReply present), green/orange/red=关卡判定 (gateResult). AI reply preview as 200-char line-clamp.
+4. **Mock fallback**: When /api/logs returns empty or errors, MOCK_* constants display; "演示数据" badge in header. Graceful degradation for DB-down environments.
+5. **CSV via server endpoint**: Button fetches /api/logs?format=csv with bearer → blob download. No client-side CSV for real data.
+6. **Override route**: Upsert pattern creates or updates CheckpointProgress; attempts always increment; unlockedAt set to now. Module-private extractBearerToken (route export restriction from Task 8/14 gotcha).
+
+### Verification Results
+- ✅ pnpm build — Compiled successfully; /dashboard (6.8 kB), ƒ /api/checkpoint/override registered
+- ✅ pnpm lint — "No ESLint warnings or errors"
+- ⚠️ DB not running locally — override route code-path verified but untested live
+
+### Gotchas
+1. **Prettier formatting on large JSX** — Dashboard .map() with deeply nested JSX caused 80+ prettier errors. Running `prettier --write` before build fixed all.
+2. **PowerShell `&&` not supported** — Windows PS 5.1 uses `;` not `&&`. Use `workdir` parameter instead.
+3. **MOCK_* as fallback mandatory** — Task spec requires mock data stays; DB-down environments show functional dashboard via mock constants.
+
+### Next Steps
+- Task 20: hidden_tests/*.json + e2e
+- When Postgres up: test override route + timeline with real data
