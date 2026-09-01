@@ -254,7 +254,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Playwright 全流通过 Evidence task-20 视频+trace；failure: 隐藏测试 WA 时前端不暴露 expected
       Commit: Y | test(e2e): hidden tests smoke full flow
 
-- [ ] 21. 编写 AGENTS.md（AI 代理守则，<150行，可执行）
+- [x] 21. 编写 AGENTS.md（AI 代理守则，<150行，可执行）
       What to do / Must NOT do: 按 explore 结论写 `AGENTS.md`：项目规则（C11 flags/TS strict/Socratic禁>5行/双校验/日志全字段/沙箱限权）、栈边界（允许/禁止目录、Provider 抽象、env 切换）、工作流（feat/* 分支+Prisma迁移+ valgrind 附试）、安全（--network=none等）；Must NOT 超 150 行或写成散文。
       Parallelization: Wave 7 | Blocked by: 20 | Blocks: 22
       References (executor has NO interview context - be exhaustive): explore AGENTS.md 骨架；项目分析文档.md:12 安全/伦理
@@ -262,7 +262,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: `grep -c "MUST NOT" AGENTS.md && wc -l AGENTS.md` 校验，Evidence task-21；failure: 缺 server-only 守卫被 review 打回
       Commit: Y | docs(agents): ai agent guardrails
 
-- [ ] 22. 编写 README.md + .env.example 完善 + 扩展点文档（人类上手，<200行）
+- [x] 22. 编写 README.md + .env.example 完善 + 扩展点文档（人类上手，<200行）
       What to do / Must NOT do: 写 `README.md`：What/Architecture图/API表/Setup(Windows优先 pnpm+compose+seed)/Extension Points(新Task Gate DSL、换Judge/AI、隐藏测试)/Roles/FAQ(Docker缺失回退)，补 `.env.example` 完整注释、`docs/extension-points.md` 与 `tasks/README.md`；Must NOT 含真实 key 或过时命令。
       Parallelization: Wave 7 | Blocked by: 21 | Blocks: -
       References (executor has NO interview context - be exhaustive): explore README 骨架；项目分析文档.md:11.1 compose、8.1 DSL
@@ -274,10 +274,10 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
 
 > Runs in parallel after ALL todos. ALL must APPROVE. Surface results and wait for the user's explicit okay before declaring complete.
 
-- [ ] F1. Plan compliance audit
-- [ ] F2. Code quality review
-- [ ] F3. Real manual QA
-- [ ] F4. Scope fidelity
+- [x] F1. Plan compliance audit
+- [x] F2. Code quality review
+- [x] F3. Real manual QA
+- [x] F4. Scope fidelity
 
 ## Commit strategy
 
