@@ -138,7 +138,42 @@ export async function GET(req: NextRequest) {
       orderBy: { assignedAt: 'desc' },
     });
 
-    return NextResponse.json({ assignments });
+    // Enrich with intro from task file (best-effort)
+    const enriched = await Promise.all(
+      assignments.map(async (a) => {
+        let intro: string | null = null;
+        let checkpointMode: string | null = null;
+        try {
+          const { loadTask } = await import('@/lib/checkpoint/loader');
+          const t = await loadTask(a.task.id);
+          intro = t.intro ?? null;
+          checkpointMode = t.checkpointMode;
+        } catch {
+          try {
+            const row = await (
+              prisma.task as unknown as {
+                findUnique: (
+                  a: unknown
+                ) => Promise<{ intro?: string | null; checkpointMode?: string } | null>;
+              }
+            ).findUnique({
+              where: { id: a.task.id },
+              select: { intro: true, checkpointMode: true } as never,
+            });
+            intro = row?.intro ?? null;
+            checkpointMode = row?.checkpointMode ?? null;
+          } catch {
+            // ignore
+          }
+        }
+        return {
+          ...a,
+          task: { ...a.task, intro, checkpointMode },
+        };
+      })
+    );
+
+    return NextResponse.json({ assignments: enriched });
   } catch (err) {
     console.error('[assignments GET] error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

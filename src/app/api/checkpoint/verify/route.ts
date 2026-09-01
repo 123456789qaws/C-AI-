@@ -51,12 +51,16 @@ function extractBearerToken(req: Request): string | null {
   return token.length > 0 ? token : null;
 }
 
-/** 从 Bearer token 解析 studentId；无效/缺失 → null（由调用方返回 401） */
-function resolveStudentId(req: Request): string | null {
+function resolveAuth(req: Request): { id: string; role: string } | null {
   const token = extractBearerToken(req);
   if (!token) return null;
   const payload = verifyToken(token);
-  return payload?.id ?? null;
+  if (!payload) return null;
+  return { id: payload.id, role: payload.role };
+}
+
+function isPrivilegedRole(role: string): boolean {
+  return role === 'TEACHER' || role === 'ADMIN' || role === 'TA';
 }
 
 /** 上一次该关卡提交的代码（作为本次 codeBefore，形成回放链） */
@@ -143,10 +147,13 @@ export async function POST(req: Request) {
   }
   const input = parsed.data;
 
-  const studentId = resolveStudentId(req);
-  if (!studentId) {
+  const auth = resolveAuth(req);
+  if (!auth) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
+  const studentId = auth.id;
+  const callerRole = auth.role;
+  const isTeacherCaller = isPrivilegedRole(callerRole);
 
   const { taskId, checkpointId } = input;
 
@@ -191,11 +198,14 @@ export async function POST(req: Request) {
   // checkpoint 按顺序解锁（通过 cp_i 才能验证 cp_{i+1}），验证 cp_k 时第 0..k 个
   // checkpoint 的 unlock.editorRegion 全部视为已解锁区间（学生可能已写入内容）。
   // 只用当前关卡自己的区间会把前序关卡的合法编辑误判为越权（todo 12 单关卡语义，此处扩展为多关卡）。
+  // free 模式：全部解锁；教师调用：全部解锁（预览）
   const currentIndex = task.checkpoints.findIndex((c) => c.id === checkpointId);
+  const isFreeMode = task.checkpointMode === 'free';
   if (code.trim().length > 0) {
-    const unlockedRegions: readonly [number, number][] = task.checkpoints
-      .slice(0, currentIndex + 1)
-      .map((c) => c.unlock.editorRegion);
+    const unlockedRegions: readonly [number, number][] =
+      isTeacherCaller || isFreeMode
+        ? task.checkpoints.map((c) => c.unlock.editorRegion)
+        : task.checkpoints.slice(0, currentIndex + 1).map((c) => c.unlock.editorRegion);
     const lock = checkEditorLock(code, unlockedRegions, input.baseline);
     if (lock.tampered) {
       const codeBefore = await previousCode(studentId, taskId, checkpointId);
@@ -227,6 +237,23 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
+  }
+
+  // 3.5) 教师全解锁预览：教师/TA/ADMIN 直接视为通过，返回全部解锁区间（不落进度）
+  if (isTeacherCaller) {
+    const allUnlockRegions = task.checkpoints.map((c) => c.unlock.editorRegion);
+    return NextResponse.json({
+      passed: true,
+      score: 1,
+      escalated: false,
+      reason: '教师预览：全部关卡已解锁',
+      perGate: [],
+      nextCheckpointId: null,
+      unlockRegions: allUnlockRegions,
+      attempts: null,
+      fullUnlock: true,
+      teacherPreview: true,
+    });
   }
 
   // 4) 两级漏斗求值：AI 复核 → test_pass 真判题

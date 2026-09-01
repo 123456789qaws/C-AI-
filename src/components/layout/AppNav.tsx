@@ -17,21 +17,16 @@ interface NavLink {
   label: string;
 }
 
-const STUDENT_LINKS: NavLink[] = [
-  { href: '/', label: '做题' },
-  { href: '/assignments', label: '我的任务' },
-  { href: '/classes', label: '加入班级' },
-];
+const STUDENT_LINKS: NavLink[] = [{ href: '/classes', label: '我的班级' }];
 
 const TEACHER_LINKS: NavLink[] = [
-  { href: '/dashboard', label: '看板' },
   { href: '/classes', label: '班级管理' },
-  { href: '/assignments', label: '任务布置' },
+  { href: '/dashboard', label: '教师看板' },
 ];
 
 const ADMIN_LINKS: NavLink[] = [
+  { href: '/classes', label: '班级管理' },
   { href: '/admin', label: '账号导入' },
-  { href: '/classes', label: '班级' },
 ];
 
 function linksForRole(role: string): NavLink[] {
@@ -113,20 +108,26 @@ export default function AppNav() {
         {/* Authenticated nav links */}
         {!loading && links.length > 0 && (
           <nav className="flex items-center gap-1">
-            {links.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={cn(
-                  'rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors',
-                  pathname === link.href
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                )}
-              >
-                {link.label}
-              </Link>
-            ))}
+            {links.map((link) => {
+              // For /classes, match both /classes and /classes/*
+              const isActive =
+                pathname === link.href ||
+                (link.href === '/classes' && pathname.startsWith('/classes'));
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={cn(
+                    'rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                  )}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
           </nav>
         )}
       </div>

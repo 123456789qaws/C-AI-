@@ -1,28 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// MVP auth gate for protected API routes.
+// MVP auth gate + home landing + page guards.
 //
-// Middleware runs on the Edge runtime, where Node's `crypto` (and therefore
-// `jsonwebtoken`) is unavailable — so we verify the HS256 signature directly
-// with Web Crypto. The route handlers themselves re-verify via
-// `verifyToken()` (Node runtime) as the authoritative check.
+// - `/` -> redirect to /login if no valid token, else to /classes (class as home for both roles)
+// - Protected pages: /classes/*, /tasks/*, /dashboard/*, /admin/*
+// - Protected APIs: /api/checkpoint/*, /api/logs/*, /api/admin/*, /api/classes/*, /api/tasks/*, /api/scores/*, /api/assignments/*
+// - Public: /login, /api/auth/*, /api/health, assets, _next
 //
-// Protected:
-//   /api/checkpoint/*      - all require Bearer (verify route no longer allows anonymous)
-//   /api/logs/*            - all require Bearer
-//   /api/admin/*           - ADMIN only (role checked in route handlers)
-//   /dashboard             - TEACHER/ADMIN only (page guard, role checked in page)
-// Allowed by default (no matcher): /api/health, /api/auth/*, pages, assets.
+// Token sources (Edge-safe):
+//   1) Cookie `luna-token` (set by /api/auth/login for page navigation)
+//   2) Authorization: Bearer <token> (API clients)
+// Verification uses Web Crypto HS256 (Edge runtime has no Node crypto/jsonwebtoken).
 
 const B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
-/** Decode a base64url string into bytes (Edge-safe, no Buffer/atob). */
 function base64UrlToBytes(input: string): Uint8Array<ArrayBuffer> {
   let b64 = input.replace(/-/g, '+').replace(/_/g, '/');
   const pad = b64.length % 4;
   if (pad === 2) b64 += '==';
   else if (pad === 3) b64 += '=';
-
   const bytes: number[] = [];
   let buffer = 0;
   let bits = 0;
@@ -30,7 +26,7 @@ function base64UrlToBytes(input: string): Uint8Array<ArrayBuffer> {
     const ch = b64[i];
     if (ch === '=') break;
     const v = B64_ALPHABET.indexOf(ch);
-    if (v === -1) return new Uint8Array(0); // invalid char -> fail verification
+    if (v === -1) return new Uint8Array(0);
     buffer = (buffer << 6) | v;
     bits += 6;
     if (bits >= 8) {
@@ -43,12 +39,10 @@ function base64UrlToBytes(input: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-/** Verify a JWT's HS256 signature (RFC 7515) using Web Crypto. */
 async function verifyHs256Signature(token: string, secret: string): Promise<boolean> {
   const parts = token.split('.');
   if (parts.length !== 3) return false;
   const signingInput = `${parts[0]}.${parts[1]}`;
-
   try {
     const key = await crypto.subtle.importKey(
       'raw',
@@ -68,24 +62,102 @@ async function verifyHs256Signature(token: string, secret: string): Promise<bool
   }
 }
 
+function extractToken(req: NextRequest): string | null {
+  const cookieToken = req.cookies.get('luna-token')?.value;
+  if (cookieToken) return cookieToken;
+  const header = req.headers.get('authorization');
+  if (header?.startsWith('Bearer ')) {
+    const t = header.slice(7).trim();
+    if (t) return t;
+  }
+  return null;
+}
+
+function isApiPath(pathname: string): boolean {
+  return pathname.startsWith('/api/');
+}
+
 export async function middleware(req: NextRequest) {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    // Fail closed: without a secret nothing can be verified.
     return NextResponse.json({ error: 'Auth not configured' }, { status: 500 });
   }
 
-  const header = req.headers.get('authorization');
-  const token = header?.startsWith('Bearer ') ? header.slice(7).trim() : null;
-  if (!token || !(await verifyHs256Signature(token, secret))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { pathname } = req.nextUrl;
+
+  // Allow public paths without auth
+  const publicPrefixes = ['/login', '/api/auth', '/api/health', '/_next', '/favicon', '/assets'];
+  const isPublic = publicPrefixes.some((p) => pathname === p || pathname.startsWith(p + '/'));
+  // Root is handled separately (landing redirect)
+  if (isPublic) {
+    return NextResponse.next();
   }
 
+  const token = extractToken(req);
+  const hasValidToken = token ? await verifyHs256Signature(token, secret) : false;
+
+  // 1) `/` -> class landing for authenticated, login for anonymous
+  if (pathname === '/') {
+    if (hasValidToken) {
+      const url = req.nextUrl.clone();
+      url.pathname = '/classes';
+      return NextResponse.redirect(url);
+    }
+    const url = req.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
+  }
+
+  // 2) Protected page/API sets
+  const protectedPagePrefixes = ['/classes', '/tasks', '/dashboard', '/admin'];
+  const protectedApiPrefixes = [
+    '/api/checkpoint',
+    '/api/logs',
+    '/api/admin',
+    '/api/classes',
+    '/api/tasks',
+    '/api/scores',
+    '/api/assignments',
+  ];
+
+  const isProtectedPage = protectedPagePrefixes.some(
+    (p) => pathname === p || pathname.startsWith(p + '/')
+  );
+  const isProtectedApi = protectedApiPrefixes.some(
+    (p) => pathname === p || pathname.startsWith(p + '/')
+  );
+
+  if (isProtectedPage || isProtectedApi) {
+    if (!hasValidToken) {
+      if (isApiPath(pathname)) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      const url = req.nextUrl.clone();
+      url.pathname = '/login';
+      url.searchParams.set('next', pathname);
+      return NextResponse.redirect(url);
+    }
+    // Auth passed: let route handle role checks (e.g. /dashboard needs TEACHER)
+    return NextResponse.next();
+  }
+
+  // Everything else passes through
   return NextResponse.next();
 }
 
-// Only run on protected API paths; /api/health, /api/auth/* and everything
-// else pass through untouched.
 export const config = {
-  matcher: ['/api/checkpoint/:path*', '/api/logs/:path*', '/api/admin/:path*', '/dashboard/:path*'],
+  matcher: [
+    '/',
+    '/classes/:path*',
+    '/tasks/:path*',
+    '/dashboard/:path*',
+    '/admin/:path*',
+    '/api/checkpoint/:path*',
+    '/api/logs/:path*',
+    '/api/admin/:path*',
+    '/api/classes/:path*',
+    '/api/tasks/:path*',
+    '/api/scores/:path*',
+    '/api/assignments/:path*',
+  ],
 };

@@ -10,18 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
  * Role -> landing page mapping
  * ============================================================ */
 
-function landingForRole(role: string): string {
-  switch (role) {
-    case 'STUDENT':
-      return '/';
-    case 'TEACHER':
-    case 'TA':
-      return '/dashboard';
-    case 'ADMIN':
-      return '/admin';
-    default:
-      return '/';
-  }
+function landingForRole(): string {
+  // All roles land on /classes as unified home; teacher can access /dashboard from nav
+  return '/classes';
 }
 
 /* ============================================================
@@ -39,7 +30,7 @@ export default function LoginPage() {
 
   /* If already logged in, redirect immediately */
   if (!loading && user) {
-    router.replace(landingForRole(user.role));
+    router.replace(landingForRole());
     return null;
   }
 
@@ -49,8 +40,8 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      const loggedIn = await login(id, password);
-      router.push(landingForRole(loggedIn.role));
+      await login(id, password);
+      router.push(landingForRole());
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败，请重试');
     } finally {

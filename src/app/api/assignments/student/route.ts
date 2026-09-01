@@ -39,15 +39,46 @@ export async function GET(req: NextRequest) {
       orderBy: { assignedAt: 'desc' },
     });
 
-    const result = assignments.map((a) => ({
-      taskId: a.task.id,
-      taskTitle: a.task.title,
-      classId: a.class.id,
-      className: a.class.name,
-      classCode: a.class.code,
-      deadline: a.deadline?.toISOString() ?? null,
-      assignedAt: a.assignedAt.toISOString(),
-    }));
+    const result = await Promise.all(
+      assignments.map(async (a) => {
+        let intro: string | null = null;
+        let checkpointMode: string | null = null;
+        try {
+          const { loadTask } = await import('@/lib/checkpoint/loader');
+          const t = await loadTask(a.task.id);
+          intro = t.intro ?? null;
+          checkpointMode = t.checkpointMode;
+        } catch {
+          try {
+            const row = await (
+              prisma.task as unknown as {
+                findUnique: (
+                  a: unknown
+                ) => Promise<{ intro?: string | null; checkpointMode?: string } | null>;
+              }
+            ).findUnique({
+              where: { id: a.task.id },
+              select: { intro: true, checkpointMode: true } as never,
+            });
+            intro = row?.intro ?? null;
+            checkpointMode = row?.checkpointMode ?? null;
+          } catch {
+            // ignore
+          }
+        }
+        return {
+          taskId: a.task.id,
+          taskTitle: a.task.title,
+          taskIntro: intro,
+          checkpointMode,
+          classId: a.class.id,
+          className: a.class.name,
+          classCode: a.class.code,
+          deadline: a.deadline?.toISOString() ?? null,
+          assignedAt: a.assignedAt.toISOString(),
+        };
+      })
+    );
 
     return NextResponse.json({ assignments: result });
   } catch (err) {

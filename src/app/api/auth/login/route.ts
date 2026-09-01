@@ -29,5 +29,13 @@ export async function POST(req: Request) {
   }
 
   const token = signToken({ id: user.id, role: user.role });
-  return NextResponse.json({ token, user });
+  const res = NextResponse.json({ token, user });
+  res.cookies.set('luna-token', token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 12,
+    secure: process.env.NODE_ENV === 'production',
+  });
+  return res;
 }
