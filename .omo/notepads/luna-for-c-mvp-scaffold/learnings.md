@@ -769,3 +769,38 @@ Successfully implemented the teacher dashboard with real data fetching from /api
 ### Next Steps
 - Task 20: hidden_tests/*.json + e2e
 - When Postgres up: test override route + timeline with real data
+
+## Task 20: 端到端冒烟与隐藏测试固化
+
+### Date: 2026-09-01
+
+### Summary
+Solidified hidden tests + full Playwright e2e for the checkpoint flow:
+- hidden_tests/fib_2.json - 6 cases (n=0/1/2/5/10/20) with nature-only descriptions + n<0 convention
+- hidden_tests/linked_list_3.json - 4 cases (empty/single/odd-multi/even-multi) all valgrind:true
+- e2e/checkpoint.spec.ts - 2 tests: full flow (login s0001/123456 via API → cp1 Socratic answer → write fib via clipboard paste → cp2 hidden tests → Hand in enabled) + failure-hint nature/no-leak assertions
+- playwright.config.ts - baseURL localhost:3000, chromium, serial; scripts/seed-reset.ts (4-table delete + prisma db seed); package.json seed:reset/test:e2e scripts
+
+### Key Decisions
+1. **Login via API** - no login UI yet (todo 17); POST /api/auth/login swaps token, frontend verify uses demo anonymous channel (body.studentId).
+2. **Mock-provider hard assertion** - after cp1 passes, assert the mock fixed reply appears; if the server accidentally runs real AI the e2e FAILS instead of silently spending paid quota.
+3. **Monaco full-file rewrite = teacher view + clipboard paste** - keyboard typing gets corrupted by autoClosingBrackets; Ctrl+A/Ctrl+V immune. Backend still enforces baseline hard-lock independently (lines 1-4 must match template char-for-char).
+4. **No webServer auto-start in config** - operator must explicitly start server with AI_PROVIDER=mock (no accidental reuse of a real-AI server).
+5. **valgrind field passed through schema** - zod strips unknown keys by default; extended HiddenTestsFileSchema + HiddenTestCase with valgrind?:boolean so linked_list_3.json valgrind:true is validated/preserved.
+
+### Verification Results
+- ✅ tsc --noEmit 0; pnpm lint 0; pnpm build ✓ (type-check covers e2e/playwright/scripts via tsconfig include **/*.ts)
+- ✅ playwright test --list → 2 tests collected (config + spec compile)
+- ✅ Offline check (tsx --conditions react-server, no DB): 14/14 - both hidden test files load, correct fib passes all 6 real-gcc cases, wrong fib hint has nature labels and leaks no expected value
+- ✅ Live HTTP smoke (mock dev server, DB down degrade): 13/13 - cp1 pass→cp2 pass (perGate reason 6 组) / cp2 fail hint no-leak / tamper 403
+- ⚠️ Full e2e run needs live DB: Chromium installed & browser launches, but login 500s without Postgres (documented failure message points to pnpm run seed:reset)
+
+### Gotchas
+1. **TS template-literal \n in C code** - e2e constants must write printf("%d\\n", ...); single backslash embeds a REAL newline inside the C string literal → guaranteed CE (Task 13 same trap).
+2. **cp2 top-level reason is 全部门通过** - summarizeReason only lists failed gates; per-gate detail (隐藏测试全部通过（6 组）) lives in perGate[0].reason.
+3. **Playwright browsers not downloaded by pnpm add** - PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 + pnpm 11 blocks postinstall; run pnpm exec playwright install chromium manually.
+4. **seed-reset must load .env itself** - tsx scripts/*.ts doesn't read .env (prisma CLI does); script parses .env manually with external-env precedence, fails exit 1 when DB unreachable.
+
+### Next Steps
+- Task 21: run full e2e once Postgres is up (docker compose up -d db → migrate → pnpm run seed:reset → AI_PROVIDER=mock pnpm dev → pnpm run test:e2e)
+- Task 17: real login UI + JWT identity in verify body (replace demo_student_001 anonymous channel)

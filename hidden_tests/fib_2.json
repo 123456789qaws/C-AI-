@@ -1,10 +1,11 @@
 {
+  "_conventions": "n 为非负整数（n>=0）。约定：n<0 属于未定义输入，隐藏测试不覆盖；防御性实现返回 -1 亦可，不在判题范围内。description 只描述测试的『性质』（边界/递归深度），绝不包含期望输出。",
   "tests": [
-    { "input": "0", "expected": "0", "description": "边界：n=0 直接返回 0" },
-    { "input": "1", "expected": "1", "description": "边界：n=1 直接返回 1" },
-    { "input": "2", "expected": "1", "description": "基础递归：fib(2)" },
-    { "input": "5", "expected": "5", "description": "递归链：fib(5)" },
-    { "input": "10", "expected": "55", "description": "递归链：fib(10)" },
-    { "input": "15", "expected": "610", "description": "递归链：fib(15)" }
+    { "stdin": "0", "expected": "0", "description": "边界：最小合法输入 n=0" },
+    { "stdin": "1", "expected": "1", "description": "边界：最浅递归出口 n=1" },
+    { "stdin": "2", "expected": "1", "description": "基础情形：最小递归展开" },
+    { "stdin": "5", "expected": "5", "description": "递归链：多层展开" },
+    { "stdin": "10", "expected": "55", "description": "递归链：深度展开" },
+    { "stdin": "20", "expected": "6765", "description": "递归链：较大输入（性能验证）" }
   ]
 }

@@ -174,7 +174,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: `hidden_tests.test.ts` 3用例批量跑，Evidence task-10；failure: 10次并发触发 429 且服务不挂
       Commit: Y | feat(judge): harness hidden tests rate-limit safety
 
-- [ ] 11. Checkpoint Gate DSL 与 Zod 校验（tasks 真源）
+- [x] 11. Checkpoint Gate DSL 与 Zod 校验（tasks 真源）
       What to do / Must NOT do: 建 `src/lib/checkpoint/schema.ts`（Zod：Task {id,title,checkpoints: {id,title,guide_question,gates:{type:regex|ai_socratic|test_pass,rule/rubric/tests,weight}[],pass_threshold,unlock:{editorRegion},on_fail:{ai_followup,valgrind_hint}}[]}），`src/lib/checkpoint/loader.ts` 读 `tasks/*.json`，`tasks/fib_L2.json` 与 `tasks/linked_list_reverse.json` 按 8.1 示例落地；Must NOT 让前端直接改 tasks。
       Parallelization: Wave 4 | Blocked by: 6,10 | Blocks: 12,17
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:8.1 Gate DSL JSON；项目描述.md:59-78 关卡结构
@@ -182,7 +182,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: loader 读 fib_L2 见 2 checkpoints，Evidence task-11；failure: 缺 unlock.editorRegion 时 Zod 报错定位
       Commit: Y | feat(checkpoint): gate dsl zod tasks seed
 
-- [ ] 12. 后端硬锁与 /api/checkpoint/verify 三级漏斗
+- [x] 12. 后端硬锁与 /api/checkpoint/verify 三级漏斗
       What to do / Must NOT do: 实现 `src/app/api/checkpoint/verify/route.ts`：1) 正则初筛 2) AI 复核（调 AI Gateway，confidence<0.7 标 escalated）3) test_pass 调 judge-lite；校验提交 code 的 editorRegion 越权（超范围编辑直接 passed=false+escalated），写 `AiInteractionLog` + `CheckpointProgress`；`src/lib/checkpoint/evaluate.ts` 权重求和 vs pass_threshold；Must NOT 仅靠前端锁。
       Parallelization: Wave 4 | Blocked by: 11 | Blocks: 13,18
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:7.3 双校验、7.2 verify 契约、8.1 weight/threshold、12.5 诚信
@@ -190,7 +190,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Vitest `checkpoint/verify.test.ts` 4态（regex/ai/test/combined），Evidence task-12；failure: F12 改前端后后端仍拒并标红
       Commit: Y | feat(checkpoint): verify funnel hard-lock backend
 
-- [ ] 13. 前端 Checkpoint 交互与解锁联动
+- [x] 13. 前端 Checkpoint 交互与解锁联动
       What to do / Must NOT do: 在 `(ide)/page.tsx` 接 `/api/checkpoint/verify`，实现“请求验证”按钮、guide_question 展示、AI reply 气泡、解锁动画（Monaco lockedRegions 更新）、Hand in 需全关通过；前端越权编辑即时回滚并 toast；Must NOT 在前端存答案。
       Parallelization: Wave 4 | Blocked by: 12 | Blocks: 20
       References (executor has NO interview context - be exhaustive): 项目描述.md:83-91 判定流；项目分析文档.md:5.3 学生旅程
@@ -214,7 +214,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Vitest 6次限流测试，Evidence task-15；failure: 注入字符串被过滤后仍返回正常 Socratic 提问
       Commit: Y | feat(ai): rate-limit 5 per checkpoint circuit-breaker
 
-- [ ] 16. Socratic 追问与 valgrind 线索注入
+- [x] 16. Socratic 追问与 valgrind 线索注入
       What to do / Must NOT do: 当 verify 失败且 `on_fail.ai_followup` 存在时自动追加追问；`memory_task` 或 `on_fail.valgrind_hint` 为 true 且判题 RE 时，附 `valgrind`/`gdb bt` 摘要到 AI 上下文（不直接给答案，AI 据此提问）；`src/lib/ai/context.ts`；Must NOT 直接把栈贴给学生当答案。
       Parallelization: Wave 5 | Blocked by: 15 | Blocks: 18
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:8.1 on_fail、9 表段错误/valgrind
@@ -230,7 +230,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Vitest `auth.test.ts` 登录+鉴权，Evidence task-17；failure: 未登录访 `/api/checkpoint/verify` 401
       Commit: Y | feat(auth): jwt seed abstraction
 
-- [ ] 18. 日志落库与回放 API（AiInteractionLog 全字段）
+- [x] 18. 日志落库与回放 API（AiInteractionLog 全字段）
       What to do / Must NOT do: 在 verify 与 ai 网关调用处写 `AiInteractionLog`（含 codeDiff via diff 库、sessionId、gateResult/Type、model、tokens、confidence），`src/app/api/logs/route.ts`（按 studentId+taskId 聚合时序，教师可见全量，学生仅己），支持 `?format=csv` 导出脱敏；Must NOT 漏写任何一次验证。
       Parallelization: Wave 6 | Blocked by: 12,16,17 | Blocks: 19
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:10.1 日志表、8.3 回放、12.3 脱敏
@@ -238,7 +238,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Vitest `logs.test.ts` 写+读+CSV，Evidence task-18；failure: 未脱敏学号被掩码
       Commit: Y | feat(logs): interaction log write replay csv
 
-- [ ] 19. 教师大盘占位实现（热力与时间线）
+- [x] 19. 教师大盘占位实现（热力与时间线）
       What to do / Must NOT do: `src/app/(teacher)/dashboard/page.tsx` 拉 `/api/logs` 聚合：阻塞热力（cp 平均尝试/停留/escalated 率）、学生时间线（code diff + AI 对话 + gateResult 三轨）、一键 override 放行、CSV 导出按钮；Must NOT 让学生看到全班数据。
       Parallelization: Wave 6 | Blocked by: 18 | Blocks: 20
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:8.3 大盘、附录B 矩阵
@@ -246,7 +246,7 @@ QA scenarios (name the exact tool + invocation): happy:`pnpm prisma migrate dev 
       QA scenarios (name the exact tool + invocation): happy: Playwright `dashboard.spec.ts` 教师视角截图+Csv下载，Evidence task-19；failure: 学生直访 /dashboard 被拦
       Commit: Y | feat(dashboard): heatmap timeline override csv
 
-- [ ] 20. 端到端冒烟与隐藏测试固化
+- [x] 20. 端到端冒烟与隐藏测试固化
       What to do / Must NOT do: 固化 `hidden_tests/fib_L2.json`（n=0/1/边界/大值）与 `hidden_tests/linked_list_reverse.json`（空/单节点/多节点+valgrind），`e2e/checkpoint.spec.ts` 走通“登录→答cp1→过cp2→Hand in”全流，`pnpm run seed:reset` 辅助；Must NOT 在 e2e 中用真实付费 AI（用 mock provider）。
       Parallelization: Wave 6 | Blocked by: 13,19 | Blocks: 21
       References (executor has NO interview context - be exhaustive): 项目分析文档.md:9 边界/泄漏、7.2 judge 契约

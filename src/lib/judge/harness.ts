@@ -18,6 +18,12 @@ export interface HiddenTestCase {
    * the failure hint. Deliberately describes the situation, not the answer.
    */
   description?: string;
+  /**
+   * Marks the case as memory-sensitive (pointer-heavy tasks like linked lists).
+   * Currently informational; future runners may execute such cases under
+   * valgrind to feed on_fail.valgrind_hint with real diagnostics.
+   */
+  valgrind?: boolean;
 }
 
 export type HiddenCaseStatus = 'passed' | 'failed' | 'skipped';

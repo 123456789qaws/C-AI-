@@ -1,0 +1,29 @@
+{
+  "_conventions": "输入为一行空格分隔的整数（节点值，EOF 结束）；输出为逆序后的空格分隔序列，行尾不带多余空格。空输入（EOF）对应空链表，输出为空。valgrind=true 标记该用例为内存敏感用例（配合 on_fail.valgrind_hint 注入内存线索）。",
+  "tests": [
+    {
+      "stdin": "",
+      "expected": "",
+      "description": "边界：空链表（head 为 NULL）",
+      "valgrind": true
+    },
+    {
+      "stdin": "1",
+      "expected": "1",
+      "description": "边界：单节点链表（头尾重合）",
+      "valgrind": true
+    },
+    {
+      "stdin": "1 2 3 4 5",
+      "expected": "5 4 3 2 1",
+      "description": "多节点：奇数长度常规逆置",
+      "valgrind": true
+    },
+    {
+      "stdin": "9 8 7 6",
+      "expected": "6 7 8 9",
+      "description": "多节点：偶数长度三指针推进",
+      "valgrind": true
+    }
+  ]
+}

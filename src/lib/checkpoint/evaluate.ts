@@ -33,7 +33,10 @@ import type { Checkpoint, Gate } from './schema';
 /** ai_socratic 置信度低于该阈值 → escalated（不自动过关，转教师复核） */
 export const AI_CONFIDENCE_ESCALATE = 0.7;
 
-/** 隐藏测试文件格式：{ tests: [{ input|stdin, expected, description? }] } */
+/**
+ * 隐藏测试文件格式：{ tests: [{ input|stdin, expected, description?, valgrind? }] }。
+ * valgrind=true 标记内存敏感用例（linked_list 等指针任务；配合 on_fail.valgrind_hint）。
+ */
 export const HiddenTestsFileSchema = z.object({
   tests: z.array(
     z.object({
@@ -41,6 +44,7 @@ export const HiddenTestsFileSchema = z.object({
       stdin: z.string().optional(),
       expected: z.string(),
       description: z.string().optional(),
+      valgrind: z.boolean().optional(),
     })
   ),
 });
@@ -53,10 +57,16 @@ function toHiddenCases(file: HiddenTestsFile): HiddenTestCase[] {
     stdin: t.stdin ?? t.input ?? '',
     expected: t.expected,
     description: t.description,
+    valgrind: t.valgrind,
   }));
 }
 
-/** 读取并校验隐藏测试文件（相对仓库根）。文件缺失/非法时抛错。 */
+/**
+ * 读取并校验隐藏测试文件（相对仓库根）。
+ * 约定：relativePath 以仓库根为基准（如 'hidden_tests/fib_2.json'，与 tasks/*.json 的
+ * `gate.tests` 引用一致）；`path.resolve(process.cwd(), ...)` 与 loader.ts 的 TASKS_DIR
+ * 同一模式 —— next dev/start 均在仓库根启动，cwd 即仓库根。文件缺失/非法时抛错。
+ */
 export async function loadHiddenTests(relativePath: string): Promise<HiddenTestCase[]> {
   const filePath = path.resolve(process.cwd(), relativePath);
   const raw = await readFile(filePath, 'utf8');
