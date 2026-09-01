@@ -1257,3 +1257,38 @@ pnpm build  # 23 pages
 
 ### Files Created/Modified
 - README.md (rewrite 161 -> 194 lines)
+
+## Task: 全面美化新页面 overflow/border 修复
+
+### Date: 2026-09-01
+
+### Summary
+Audited and fixed text overflow/boundary issues across all new pages:
+- TaskCreator: overflow-hidden on Card + checkpoint containers, whitespace-pre-wrap + overflow-auto on code/test/aiChain textareas (long JSON/code no longer escapes)
+- Login: overflow-hidden on login Card
+- Classes: overflow-hidden on teacher class cards in grid
+- Admin: truncate + max-w-[200px] on class name column in table
+- Dashboard: truncate on assignment titles/classes, truncate student/task IDs in timeline, shrink-0 on separator dots
+
+### Key Decisions
+1. **overflow-hidden on Card wrappers** — Cards already have `overflow-hidden` in shadcn base; adding it to container cards that wrap other cards provides defense-in-depth for edge cases (e.g. nested flex overflow)
+2. **whitespace-pre-wrap for code textareas** — initialCode, tests JSON, aiChain all use `whitespace-pre-wrap break-all overflow-auto` to prevent long code/JSON from escaping their containers while still wrapping when possible
+3. **truncate on text-heavy table cells** — Dashboard and admin tables with potentially long class names or task titles use `truncate` (which includes `overflow-hidden text-ellipsis whitespace-nowrap`)
+4. **min-w-0 not needed on existing pages** — Most flex containers already had `min-w-0` from earlier work; no additional changes needed for classes/[id] and tasks/[id] which already had proper overflow handling
+
+### Verification Results
+- ✅ pnpm lint — "No ESLint warnings or errors"
+- ✅ pnpm build — Compiled successfully, 25 pages
+- ✅ 5 files modified: TaskCreator.tsx, login/page.tsx, classes/page.tsx, admin/page.tsx, dashboard/page.tsx
+
+### Gotchas
+1. **CRLF from git checkout** — `git checkout --` restored CRLF line endings on classes/page.tsx; prettier --write converts back to LF
+2. **prettier line-length on JSX** — truncate attribute on long className strings caused prettier/prettier errors; resolved by prettier --write
+3. **Dashboard indentation drift** — edit tool shifted indentation on a nested div; fixed manually before lint pass
+
+### Files Modified
+- src/components/task/TaskCreator.tsx (overflow-hidden Card, checkpoint containers, textarea overflow)
+- src/app/login/page.tsx (overflow-hidden Card)
+- src/app/classes/page.tsx (overflow-hidden teacher class cards)
+- src/app/admin/page.tsx (truncate class name column)
+- src/app/(teacher)/dashboard/page.tsx (truncate assignments, timeline entries)
