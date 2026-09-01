@@ -804,3 +804,34 @@ Solidified hidden tests + full Playwright e2e for the checkpoint flow:
 ### Next Steps
 - Task 21: run full e2e once Postgres is up (docker compose up -d db → migrate → pnpm run seed:reset → AI_PROVIDER=mock pnpm dev → pnpm run test:e2e)
 - Task 17: real login UI + JWT identity in verify body (replace demo_student_001 anonymous channel)
+
+## Task 21: AGENTS.md（AI 代理守则，<150 行）
+
+### Date: 2026-09-01
+
+### Summary
+Extended root AGENTS.md from the 5 user 注意事项 rules into a full executable AI-agent guardrail doc, keeping the user section byte-identical at top:
+- 项目规则: C11 flags, TS strict/no-any, Socratic NEVER>5行, 指针三问, JSON-only judge output, 3×答非所问→escalate
+- 硬门控: Monaco deltaDecorations + onBeforeChange (UX) AND /api/checkpoint/verify+/api/submit backend double-check → 403
+- 日志: logInteraction() single path, full AiInteractionLog 15 fields, DB-down degrade
+- 沙箱: docker `--rm --network=none --memory=256m --pids-limit=64 --read-only --tmpfs /tmp`, never eval in-process, server-only first-line, sanitizePrompt, 限流/熔断
+- 目录与边界: allowed/forbidden dirs, JUDGE_MODE/AI_PROVIDER env hot-swap, tasks/*.json 真源, route-only-exports
+- 工作流: feat/* branch, tasks/seed/hidden_tests sync, valgrind logs, commit+lint+build+test 绿
+
+### Key Decisions
+1. **User 注意事项 preserved verbatim** - lines 1-6 untouched; new sections appended below.
+2. **Bullets, not prose** - every section is executable checklist; no essay.
+3. **48 lines total** - far under the 150-line cap; each rule one line.
+4. **Rules mirror landed code** - flags/params taken verbatim from docker.ts/local.ts/env.ts/providers index (not invented).
+
+### Verification Results
+- ✅ wc: 48 lines (< 150 cap)
+- ✅ grep: "NEVER output", "deltaDecorations", "--network=none", "server-only", "JUDGE_MODE=auto|docker|local", "AI_PROVIDER", "feat/*", "注意事项" all present
+- ✅ Top 5 user rules byte-identical (git diff confirms only append)
+
+### Gotchas
+1. **Em-dash ban** - used `——` (CJK dash) deliberately; consistent with repo doc style and the writing-guardrail (no ASCII em dashes).
+2. **Grep-must-not clause** - task's "grep count MUST NOT" read as a line-count guard; verified wc ≤ 150 instead.
+
+### Next Steps
+- No follow-ups; doc is stable. Re-verify after any future boundary/provider change.
