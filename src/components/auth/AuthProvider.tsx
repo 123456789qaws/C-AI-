@@ -96,13 +96,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /** Login: POST /api/auth/login, store token, set user. Returns the user on success. */
   const login = useCallback(async (id: string, password: string): Promise<AuthUser> => {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, password }),
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, password }),
+      });
+    } catch {
+      // Network error / server unreachable
+      throw new Error('登录服务暂时不可用，请稍后重试');
+    }
 
-    const data = (await res.json()) as { token?: string; user?: AuthUser; error?: string };
+    let data: { token?: string; user?: AuthUser; error?: string };
+    try {
+      data = (await res.json()) as { token?: string; user?: AuthUser; error?: string };
+    } catch {
+      // Non-JSON response (e.g. proxy HTML error page) — never surface "Unexpected token"
+      throw new Error('登录服务暂时不可用，请稍后重试');
+    }
 
     if (!res.ok) {
       throw new Error(data.error ?? '登录失败');

@@ -1,17 +1,18 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { FormEvent, Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
 /* ============================================================
- * Role -> landing page mapping
+ * Helpers
  * ============================================================ */
 
-function landingForRole(): string {
-  // All roles land on /classes as unified home; teacher can access /dashboard from nav
+/** Sanitize the ?next= param — only allow same-origin relative paths. */
+function safeNext(raw: string | null): string {
+  if (raw && raw.startsWith('/') && !raw.startsWith('//')) return raw;
   return '/classes';
 }
 
@@ -19,8 +20,10 @@ function landingForRole(): string {
  * Login Page
  * ============================================================ */
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = safeNext(searchParams.get('next'));
   const { login, user, loading } = useAuth();
 
   const [id, setId] = useState('');
@@ -28,9 +31,9 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  /* If already logged in, redirect immediately */
+  /* If already logged in, redirect immediately (replace so login isn't in history) */
   if (!loading && user) {
-    router.replace(landingForRole());
+    router.replace(next);
     return null;
   }
 
@@ -41,7 +44,8 @@ export default function LoginPage() {
 
     try {
       await login(id, password);
-      router.push(landingForRole());
+      // replace, not push, so back-button never returns to a stale login page
+      router.replace(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败，请重试');
     } finally {
@@ -94,7 +98,10 @@ export default function LoginPage() {
 
             {/* Error message */}
             {error && (
-              <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <div
+                role="alert"
+                className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
                 {error}
               </div>
             )}
@@ -112,5 +119,13 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

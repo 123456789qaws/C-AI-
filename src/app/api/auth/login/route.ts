@@ -22,10 +22,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'id and password are required' }, { status: 400 });
   }
 
-  const user = await authProvider.login(parsed.data.id, parsed.data.password);
+  let user;
+  try {
+    user = await authProvider.login(parsed.data.id, parsed.data.password);
+  } catch {
+    // DB down or other provider failure — never leak raw errors to the client.
+    return NextResponse.json({ error: '登录服务暂时不可用，请稍后重试' }, { status: 500 });
+  }
+
   if (!user) {
     // Same message for unknown id and wrong password (avoid id enumeration).
-    return NextResponse.json({ error: 'Invalid id or password' }, { status: 401 });
+    return NextResponse.json({ error: '账号或密码错误' }, { status: 401 });
   }
 
   const token = signToken({ id: user.id, role: user.role });
