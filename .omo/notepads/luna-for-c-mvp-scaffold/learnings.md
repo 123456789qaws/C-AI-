@@ -1230,3 +1230,30 @@ pnpm build  # 23 pages
 - prisma/seed.ts (sync)
 - prisma/migrations/20260902000000_add_task_intro_mode_author/migration.sql
 - .omo/evidence/improve-v2-datamodel.md
+
+## Task: README 重构（覆盖新功能，<300 行）
+
+### Date: 2026-09-02
+
+### Summary
+重写 README.md 同步新功能：简介、主要功能（角色分流/班级落地/学生加入与任务倒计时/教师管班与成绩/任务发布含 intro+checkpointMode+AI链/code+AI生成测试/闯关 sequential/free+教师全解锁/判题/日志/明暗主题）、技术栈、Windows 快速开始、页面导航表、架构 ASCII、API 全表（含 /api/tasks /classes /assignments /scores /admin/import）、任务发布字段说明、环境变量、扩展点与 FAQ。行数 194，结构化中文，含 badges。
+
+### Key Decisions
+1. **194 行**：远低于 300 上限，信息密度优先；旧版 161 行扩至 194 仅增必要章节。
+2. **页面导航按角色**：/ /login /classes 落地页 /classes/[id] /tasks/[id] /dashboard /admin，点明教师全解锁与学生倒计时。
+3. **API 表按权限列**：新增 9 条新路由全部列出，旧 8 条保留，权限列标 STUDENT/TEACHER/ADMIN。
+4. **架构图同步新路由与表**：classes / TaskAssignment 进图，硬门控文案含 /api/submit。
+5. **无新增 env**：.env.example 已完备，README 环境变量表与之对齐。
+
+### Verification Results
+- pnpm build Compiled successfully，25 页，middleware 27.2kB
+- README 194 行
+- badges + 主题 + AI-only（无 regex）+ override 均提及
+
+### Gotchas
+1. 长表格行需控宽 120 内。
+2. seed.ts intro 假报错为 LSP 缓存滞后，build 以 tsc 为准。
+3. write 全量替换比 edit 增量更稳。
+
+### Files Created/Modified
+- README.md (rewrite 161 -> 194 lines)
