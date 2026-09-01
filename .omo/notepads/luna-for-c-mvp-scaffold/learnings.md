@@ -1077,3 +1077,45 @@ pnpm lint
 - When PostgreSQL is available: run migrations + seed to populate new tables
 - Frontend integration: class creation UI, student join flow, teacher assignment UI, admin import UI
 - E2E tests for new API endpoints
+
+## Improve 5: 前端认证基础设施
+
+### Date: 2026-09-01
+
+### Summary
+Built frontend auth infrastructure: AuthProvider (context + useAuth hook), login page, top navigation (AppNav), role-based route guards (AuthGuard), admin placeholder page. All integrated into root layout with ThemeProvider preserved.
+
+### Key Decisions
+1. **localStorage key standardized to 'luna-token'** — AuthProvider reads/writes 'luna-token'; dashboard's getToken() updated from 'token' to match. Single key for all auth state.
+2. **AuthGuard as separate reusable component** — Wraps children with loading/redirect/role-check logic. Dashboard keeps its own auth (too large to refactor in this task); only storage key updated.
+3. **AppNav conditionally renders on /login** — pathname === '/login' → return null. Clean login UX without navigation chrome.
+4. **Safe defaults in useAuth** — Returns {user: null, loading: true} during SSR/SSG when context is undefined. Prevents hydration mismatches and SSG crashes.
+5. **ThemeProvider → AuthProvider nesting** — AuthProvider is inside ThemeProvider so AppNav can use both useAuth() and ThemeToggle (which uses useTheme). AppNav renders at layout level above children.
+6. **Role-based nav links** — STUDENT: 做题/我的任务/加入班级; TEACHER/TA: 看板/班级管理/任务布置; ADMIN: 账号导入/班级. Each link gets active state via usePathname comparison.
+
+### Verification Results
+- ✅ pnpm build — Compiled successfully, 22 static pages (+2: /login, /admin), all existing routes preserved
+- ✅ pnpm lint — "No ESLint warnings or errors"
+- ✅ Route table verified: /login 3.1 kB, /admin 2.22 kB, /dashboard 6.82 kB, / 13.6 kB
+
+### Gotchas
+1. **Prettier enforces single-line JSX attributes** — Multi-line label elements (`<label htmlFor="..." className="...">`) and Button props must be on one line per .prettierrc. Always run `prettier --write` after writing new components.
+2. **useTheme import false positive** — AppNav imported useTheme for potential future use but only used ThemeToggle component. ESLint caught unused import. Remove imports you don't immediately use.
+3. **Dashboard dual auth system** — Dashboard has its own `getToken()` + `/api/auth/me` fetch independent of AuthProvider. Both read the same localStorage key. Refactoring dashboard to use useAuth() is a separate task (high risk, 828-line file).
+4. **Middleware stays API-only** — Page route protection is client-side (AuthGuard + login redirect). Edge middleware can't read localStorage tokens. This is the recommended Next.js pattern for token-in-localStorage auth.
+
+### Files Created
+- src/components/auth/AuthProvider.tsx, AuthGuard.tsx
+- src/components/layout/AppNav.tsx
+- src/app/login/page.tsx
+- src/app/admin/page.tsx
+- .omo/evidence/luna-for-c-mvp-scaffold/improve-5-auth.md
+
+### Files Modified
+- src/app/layout.tsx (AuthProvider + AppNav)
+- src/app/(teacher)/dashboard/page.tsx (localStorage key)
+
+### Next Steps
+- Task 17: JWT identity in verify body (replace demo_student_001)
+- Frontend: class creation UI, student join flow, teacher assignment UI, admin import UI
+- E2E tests: login flow + role-based redirect + protected route guard

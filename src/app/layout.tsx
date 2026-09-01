@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme/ThemeProvider';
-import ThemeToggle from '@/components/theme/ThemeToggle';
+import { AuthProvider } from '@/components/auth/AuthProvider';
+import AppNav from '@/components/layout/AppNav';
 import './globals.css';
 
 const inter = Inter({
@@ -30,11 +31,10 @@ export default function RootLayout({
     <html lang="zh-CN" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider>
-          <header className="flex h-12 items-center justify-between border-b border-border bg-card px-4">
-            <span className="text-sm font-medium text-card-foreground">Luna for C</span>
-            <ThemeToggle />
-          </header>
-          <main className="h-[calc(100vh-3rem)]">{children}</main>
+          <AuthProvider>
+            <AppNav />
+            <main className="h-[calc(100vh-3rem)]">{children}</main>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

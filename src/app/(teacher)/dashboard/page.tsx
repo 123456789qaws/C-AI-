@@ -76,7 +76,7 @@ interface LogEntry {
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('token');
+  return localStorage.getItem('luna-token');
 }
 
 function authHeaders(): Record<string, string> {
