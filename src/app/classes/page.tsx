@@ -448,7 +448,7 @@ function TeacherView() {
         <div className="grid gap-4 sm:grid-cols-2">
           {classes.map((cls) => (
             <Link key={cls.id} href={`/classes/${cls.id}`} className="block group">
-              <Card className="h-full transition-shadow hover:shadow-md group-hover:border-primary/30">
+              <Card className="h-full overflow-hidden transition-shadow hover:shadow-md group-hover:border-primary/30">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base truncate">{cls.name}</CardTitle>

@@ -51,7 +51,7 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-[calc(100vh-3rem)] items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-sm overflow-hidden">
         <CardHeader>
           <CardTitle>Luna for C</CardTitle>
           <CardDescription>AI辅助C语言教学平台 · 请登录</CardDescription>

@@ -909,10 +909,10 @@ export default function TeacherDashboard() {
                           className="flex items-center justify-between rounded-lg border border-border/50 px-3 py-2"
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-foreground">
+                            <div className="text-sm font-medium text-foreground truncate">
                               {a.task?.title ?? a.taskId}
                             </div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-xs text-muted-foreground truncate">
                               {a.class?.name ?? a.classId}
                               {a.deadline && (
                                 <span className="ml-2">
@@ -1082,11 +1082,13 @@ export default function TeacherDashboard() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 text-sm">
-                                  <span className="font-medium text-foreground">
+                                  <span className="font-medium text-foreground truncate">
                                     {entry.studentId}
                                   </span>
-                                  <span className="text-muted-foreground">·</span>
-                                  <span className="text-primary font-medium">{entry.taskId}</span>
+                                  <span className="text-muted-foreground shrink-0">·</span>
+                                  <span className="text-primary font-medium truncate">
+                                    {entry.taskId}
+                                  </span>
                                   <span className="text-muted-foreground text-xs">
                                     {entry.checkpointId}
                                   </span>

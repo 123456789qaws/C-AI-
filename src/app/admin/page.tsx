@@ -151,7 +151,9 @@ export default function AdminPage() {
                   <tbody>
                     {classes.map((c) => (
                       <tr key={c.id} className="border-b border-border/50 hover:bg-muted/50">
-                        <td className="px-3 py-2 font-medium text-foreground">{c.name}</td>
+                        <td className="px-3 py-2 font-medium text-foreground truncate max-w-[200px]">
+                          {c.name}
+                        </td>
                         <td className="px-3 py-2 font-mono text-muted-foreground">{c.code}</td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {c.teacher?.name ?? c.teacherId}

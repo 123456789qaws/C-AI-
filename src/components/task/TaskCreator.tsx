@@ -192,7 +192,7 @@ export default function TaskCreator({ onCreated }: TaskCreatorProps) {
   };
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle className="text-base">创建新任务</CardTitle>
       </CardHeader>
@@ -279,7 +279,7 @@ export default function TaskCreator({ onCreated }: TaskCreatorProps) {
             {checkpoints.map((cp, index) => (
               <div
                 key={cp.id}
-                className="relative rounded-xl border border-border bg-muted/30 p-4 space-y-3"
+                className="relative rounded-xl border border-border bg-muted/30 p-4 space-y-3 overflow-hidden"
               >
                 {/* Header */}
                 <div className="flex items-center gap-2">
@@ -342,7 +342,7 @@ export default function TaskCreator({ onCreated }: TaskCreatorProps) {
                         onChange={(e) => updateCheckpoint(cp.id, { aiChain: e.target.value })}
                         placeholder={'问题1\n问题2\n问题3'}
                         rows={3}
-                        className="w-full resize-none rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 break-all"
+                        className="w-full resize-none rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 whitespace-pre-wrap break-all overflow-auto min-h-0"
                       />
                     </div>
                     <div>
@@ -370,7 +370,7 @@ export default function TaskCreator({ onCreated }: TaskCreatorProps) {
                         onChange={(e) => updateCheckpoint(cp.id, { initialCode: e.target.value })}
                         placeholder="#include &lt;stdio.h&gt;&#10;&#10;int main() {&#10;  // 学生从这里开始&#10;  return 0;&#10;}"
                         rows={6}
-                        className="w-full resize-none rounded-lg border border-border bg-muted px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 break-all"
+                        className="w-full resize-none rounded-lg border border-border bg-muted px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 whitespace-pre-wrap break-all overflow-auto min-h-0"
                       />
                     </div>
                     <div>
@@ -382,7 +382,7 @@ export default function TaskCreator({ onCreated }: TaskCreatorProps) {
                         onChange={(e) => updateCheckpoint(cp.id, { tests: e.target.value })}
                         placeholder='[{"input": "3", "expected": "2"}]'
                         rows={3}
-                        className="w-full resize-none rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 break-all"
+                        className="w-full resize-none rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 whitespace-pre-wrap break-all overflow-auto min-h-0"
                       />
                     </div>
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
