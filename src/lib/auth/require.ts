@@ -31,10 +31,10 @@ export function requireRole(req: NextRequest, roles: Role[]): AuthResult {
 }
 
 /**
- * Convenience: require TEACHER or ADMIN (teacher perspective).
+ * Convenience: require TEACHER, TA or ADMIN (teacher perspective).
  */
 export function requireTeacher(req: NextRequest): AuthResult {
-  return requireRole(req, [Role.TEACHER, Role.ADMIN]);
+  return requireRole(req, [Role.TEACHER, Role.TA, Role.ADMIN]);
 }
 
 /**

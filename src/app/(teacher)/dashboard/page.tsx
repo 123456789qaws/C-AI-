@@ -31,6 +31,8 @@ const MOCK_TIMELINE = [
   { time: '09:35', student: '吴十', task: '变量与类型', action: '提交代码', status: '通过' },
 ];
 
+// 保留演示数据仅供 ?mock=1 调试，默认不使用
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MOCK_STATS = {
   totalStudents: 45,
   activeNow: 12,
@@ -85,10 +87,10 @@ function authHeaders(): Record<string, string> {
 }
 
 function getHeatColor(passRate: number) {
-  if (passRate >= 0.9) return 'bg-green-500';
-  if (passRate >= 0.7) return 'bg-yellow-500';
-  if (passRate >= 0.5) return 'bg-orange-500';
-  return 'bg-red-500';
+  if (passRate >= 0.9) return 'bg-black';
+  if (passRate >= 0.7) return 'bg-black/70';
+  if (passRate >= 0.5) return 'bg-black/50';
+  return 'bg-black/30';
 }
 
 function formatTime(iso: string) {
@@ -99,13 +101,13 @@ function formatTime(iso: string) {
 function gateBadge(result: string) {
   switch (result) {
     case 'passed':
-      return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+      return 'bg-black/10 text-black';
     case 'failed':
-      return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
+      return 'bg-black/20 text-black';
     case 'escalated':
-      return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400';
+      return 'bg-black/15 text-black';
     default:
-      return 'bg-secondary text-secondary-foreground';
+      return 'bg-[#f7f7f7] text-[#666666]';
   }
 }
 
@@ -244,15 +246,17 @@ export default function TeacherDashboard() {
         return r.json();
       })
       .then((data) => {
-        if (Array.isArray(data.rows) && data.rows.length > 0) {
+        if (Array.isArray(data.rows)) {
           setLogs(data.rows);
           setLogsSource('api');
         } else {
-          setLogsSource('mock');
+          setLogs([]);
+          setLogsSource('api');
         }
       })
       .catch(() => {
-        setLogsSource('mock');
+        setLogs([]);
+        setLogsSource('api');
       });
   }, [role]);
 
@@ -291,7 +295,6 @@ export default function TeacherDashboard() {
   }, [role]);
 
   /* —— 创建班级 —— */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
   const handleCreateClass = useCallback(async () => {
     if (!newClassName.trim()) return;
     setClassCreating(true);
@@ -303,15 +306,17 @@ export default function TeacherDashboard() {
       });
       if (res.ok) {
         setNewClassName('');
-        // Refresh classes list
         const refreshRes = await fetch('/api/classes', { headers: authHeaders() });
         if (refreshRes.ok) {
           const data = await refreshRes.json();
           setClasses(data.classes ?? []);
         }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error('[dashboard] create class failed:', err.error ?? res.statusText);
       }
     } catch {
-      console.error('[dashboard] create class failed');
+      console.error('[dashboard] create class failed: network error');
     } finally {
       setClassCreating(false);
     }
@@ -370,9 +375,8 @@ export default function TeacherDashboard() {
 
   /* —— 计算热力图 —— */
   const heatData = useMemo(() => {
-    if (logsSource === 'mock') return MOCK_HEAT_DATA;
+    if (logs.length === 0) return [];
     const aggregated = aggregateHeat(logs);
-    // 补充 taskName：如果 taskId 格式为 "task-N"，返回对应的中文名
     const taskNames: Record<string, string> = {};
     MOCK_HEAT_DATA.forEach((m) => {
       taskNames[m.taskId] = m.taskName;
@@ -380,25 +384,27 @@ export default function TeacherDashboard() {
     return aggregated.map((h) => ({
       taskId: h.taskId,
       taskName: taskNames[h.taskId] ?? h.taskId,
-      avgScore: 0, // 从日志中无法精确计算均分，用 0 表示无数据
+      avgScore: 0,
       submissions: h.submissions,
       passRate: h.passRate,
     }));
-  }, [logs, logsSource]);
+  }, [logs]);
 
   /* —— 统计卡片 —— */
   const stats = useMemo(() => {
-    if (logsSource === 'mock') return MOCK_STATS;
+    if (logs.length === 0) {
+      return { totalStudents: 0, activeNow: 0, avgScore: 0, totalSubmissions: 0 };
+    }
     const uniqueStudents = new Set(logs.map((r) => r.studentId));
     const passed = logs.filter((r) => r.gateResult === 'passed').length;
     const total = logs.length;
     return {
-      totalStudents: uniqueStudents.size || MOCK_STATS.totalStudents,
-      activeNow: MOCK_STATS.activeNow, // 无在线检测，保留演示值
-      avgScore: total > 0 ? Math.round((passed / total) * 100) : MOCK_STATS.avgScore,
+      totalStudents: uniqueStudents.size,
+      activeNow: 0,
+      avgScore: total > 0 ? Math.round((passed / total) * 100) : 0,
       totalSubmissions: total,
     };
-  }, [logs, logsSource]);
+  }, [logs]);
 
   /* —— CSV 导出 —— */
   const handleExportCSV = useCallback(async () => {
@@ -455,8 +461,8 @@ export default function TeacherDashboard() {
   /* —— Loading —— */
   if (loading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <p className="text-sm text-muted-foreground">加载中...</p>
+      <div className="flex h-screen w-full items-center justify-center bg-white">
+        <p className="text-sm text-[#666666]">加载中...</p>
       </div>
     );
   }
@@ -464,11 +470,11 @@ export default function TeacherDashboard() {
   /* —— 无权限 / 未登录 —— */
   if (role === 'STUDENT') {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
+      <div className="flex h-screen w-full items-center justify-center bg-white">
         <Card className="max-w-sm w-full">
           <CardContent className="flex flex-col items-center gap-4 py-12">
             <svg
-              className="size-12 text-muted-foreground opacity-50"
+              className="size-12 text-[#999999] opacity-50"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -478,8 +484,8 @@ export default function TeacherDashboard() {
               <rect x="3" y="11" width="18" height="11" rx="2" />
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            <p className="text-base font-medium text-foreground">无权限</p>
-            <p className="text-sm text-muted-foreground text-center">
+            <p className="text-base font-medium text-black">无权限</p>
+            <p className="text-sm text-[#666666] text-center">
               教师大盘仅供教师与助教访问。如果您是学生，请返回编码界面。
             </p>
             <Button variant="outline" size="sm" onClick={() => (window.location.href = '/')}>
@@ -493,13 +499,11 @@ export default function TeacherDashboard() {
 
   if (role === 'UNAUTHENTICATED') {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
+      <div className="flex h-screen w-full items-center justify-center bg-white">
         <Card className="max-w-sm w-full">
           <CardContent className="flex flex-col items-center gap-4 py-12">
-            <p className="text-base font-medium text-foreground">请先登录</p>
-            <p className="text-sm text-muted-foreground text-center">
-              您需要登录教师账号才能访问看板。
-            </p>
+            <p className="text-base font-medium text-black">请先登录</p>
+            <p className="text-sm text-[#666666] text-center">您需要登录教师账号才能访问看板。</p>
             <Button variant="outline" size="sm" onClick={() => (window.location.href = '/')}>
               前往登录
             </Button>
@@ -510,16 +514,16 @@ export default function TeacherDashboard() {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
+    <div className="flex h-screen w-full overflow-hidden bg-white">
       {/* 左侧导航 */}
-      <aside className="flex-shrink-0 w-64 border-r border-border bg-card hidden lg:block">
+      <aside className="flex-shrink-0 w-64 border-r border-[#dddddd] bg-[#f7f7f7] hidden lg:block">
         <nav className="p-4 space-y-1" aria-label="教师看板导航">
-          <div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <div className="px-3 py-2 text-xs font-medium text-[#999999] uppercase tracking-wider">
             教师看板
           </div>
           <a
             href="#overview"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-primary bg-primary/10"
+            className="flex items-center gap-3 rounded-none px-3 py-2 text-sm font-medium text-black bg-black/10"
             aria-current="page"
           >
             <svg
@@ -538,7 +542,7 @@ export default function TeacherDashboard() {
           </a>
           <a
             href="#students"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors"
           >
             <svg
               className="size-5"
@@ -556,7 +560,7 @@ export default function TeacherDashboard() {
           </a>
           <a
             href="#tasks"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors"
           >
             <svg
               className="size-5"
@@ -572,7 +576,7 @@ export default function TeacherDashboard() {
           </a>
           <a
             href="#analytics"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors"
           >
             <svg
               className="size-5"
@@ -591,16 +595,16 @@ export default function TeacherDashboard() {
       </aside>
 
       {/* 主内容区 */}
-      <main className="flex-1 min-w-0 overflow-y-auto bg-background p-6">
+      <main className="flex-1 min-w-0 overflow-y-auto bg-white p-6">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* 头部 */}
           <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">教师看板</h1>
-              <p className="text-sm text-muted-foreground mt-1">
+              <h1 className="text-2xl font-bold text-black">教师看板</h1>
+              <p className="text-sm text-[#666666] mt-1">
                 实时监控学生学习进度与代码提交情况
                 {logsSource === 'mock' && (
-                  <span className="ml-2 inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                  <span className="ml-2 inline-flex items-center rounded-none bg-black/10 px-2 py-0.5 text-xs font-medium text-black">
                     演示数据
                   </span>
                 )}
@@ -641,44 +645,44 @@ export default function TeacherDashboard() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Card size="sm">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-muted-foreground">总学生数</CardTitle>
+                <CardTitle className="text-sm text-[#999999]">总学生数</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-foreground">{stats.totalStudents}</div>
+                <div className="text-3xl font-bold text-black">{stats.totalStudents}</div>
               </CardContent>
             </Card>
             <Card size="sm">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-muted-foreground">在线人数</CardTitle>
+                <CardTitle className="text-sm text-[#999999]">在线人数</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-green-600">{stats.activeNow}</div>
+                <div className="text-3xl font-bold text-black">{stats.activeNow}</div>
               </CardContent>
             </Card>
             <Card size="sm">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-muted-foreground">平均通过率</CardTitle>
+                <CardTitle className="text-sm text-[#999999]">平均通过率</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-foreground">
+                <div className="text-3xl font-bold text-black">
                   {stats.avgScore}
-                  <span className="text-lg text-muted-foreground ml-1">%</span>
+                  <span className="text-lg text-[#999999] ml-1">%</span>
                 </div>
               </CardContent>
             </Card>
             <Card size="sm">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-muted-foreground">总提交数</CardTitle>
+                <CardTitle className="text-sm text-[#999999]">总提交数</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-foreground">{stats.totalSubmissions}</div>
+                <div className="text-3xl font-bold text-black">{stats.totalSubmissions}</div>
               </CardContent>
             </Card>
           </div>
 
           {/* ====== 班级管理 ====== */}
           <section id="classes" aria-labelledby="classes-title">
-            <h2 id="classes-title" className="text-lg font-semibold text-foreground mb-4">
+            <h2 id="classes-title" className="text-lg font-semibold text-black mb-4">
               班级管理
             </h2>
             <div className="grid gap-4 lg:grid-cols-2">
@@ -689,7 +693,7 @@ export default function TeacherDashboard() {
                     <div className="flex-1">
                       <label
                         htmlFor="new-class-name"
-                        className="mb-1 block text-xs font-medium text-muted-foreground"
+                        className="mb-1 block text-xs font-medium text-[#999999]"
                       >
                         班级名称
                       </label>
@@ -699,7 +703,7 @@ export default function TeacherDashboard() {
                         value={newClassName}
                         onChange={(e) => setNewClassName(e.target.value)}
                         placeholder="输入班级名称..."
-                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                        className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 text-sm text-black placeholder:text-[#666666] outline-none focus:border-black focus:ring-2 focus:ring-black/50"
                       />
                     </div>
                     <Button
@@ -718,22 +722,20 @@ export default function TeacherDashboard() {
                 <CardContent className="pt-4">
                   <div className="max-h-[240px] overflow-y-auto space-y-2">
                     {classes.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">暂无班级</p>
+                      <p className="text-sm text-[#666666] text-center py-4">暂无班级</p>
                     ) : (
                       classes.map((c) => (
                         <div
                           key={c.id}
-                          className={`flex items-center justify-between rounded-lg border px-3 py-2 transition-colors ${
+                          className={`flex items-center justify-between rounded-none border px-3 py-2 transition-colors ${
                             selectedClassId === c.id
-                              ? 'border-primary bg-primary/5'
-                              : 'border-border/50 hover:bg-muted/50'
+                              ? 'border-black bg-black/5'
+                              : 'border-[#dddddd]/50 hover:bg-[#f7f7f7]'
                           }`}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-foreground truncate">
-                              {c.name}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-sm font-medium text-black truncate">{c.name}</div>
+                            <div className="text-xs text-[#999999]">
                               <span className="font-mono">{c.code}</span>
                               {c._count && (
                                 <span className="ml-2">
@@ -783,31 +785,27 @@ export default function TeacherDashboard() {
                 </CardHeader>
                 <CardContent>
                   {enrollmentsLoading ? (
-                    <p className="text-sm text-muted-foreground">加载中...</p>
+                    <p className="text-sm text-[#666666]">加载中...</p>
                   ) : enrolledStudents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">暂无学生加入</p>
+                    <p className="text-sm text-[#666666]">暂无学生加入</p>
                   ) : (
                     <div className="overflow-x-auto max-h-[200px] overflow-y-auto">
                       <table className="w-full text-sm" role="table">
-                        <thead className="sticky top-0 bg-card">
-                          <tr className="border-b border-border">
-                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                              学号
-                            </th>
-                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                              姓名
-                            </th>
-                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                        <thead className="sticky top-0 bg-[#f7f7f7]">
+                          <tr className="border-b border-[#dddddd]">
+                            <th className="text-left px-3 py-2 font-medium text-[#999999]">学号</th>
+                            <th className="text-left px-3 py-2 font-medium text-[#999999]">姓名</th>
+                            <th className="text-left px-3 py-2 font-medium text-[#999999]">
                               加入时间
                             </th>
                           </tr>
                         </thead>
                         <tbody>
                           {enrolledStudents.map((s) => (
-                            <tr key={s.id} className="border-b border-border/50">
-                              <td className="px-3 py-2 font-mono text-foreground">{s.id}</td>
-                              <td className="px-3 py-2 text-foreground">{s.name}</td>
-                              <td className="px-3 py-2 text-muted-foreground">
+                            <tr key={s.id} className="border-b border-[#dddddd]/50">
+                              <td className="px-3 py-2 font-mono text-black">{s.id}</td>
+                              <td className="px-3 py-2 text-black">{s.name}</td>
+                              <td className="px-3 py-2 text-[#999999]">
                                 {new Date(s.joinedAt).toLocaleDateString('zh-CN')}
                               </td>
                             </tr>
@@ -823,7 +821,7 @@ export default function TeacherDashboard() {
 
           {/* ====== 任务布置 ====== */}
           <section id="assignments" aria-labelledby="assignments-title">
-            <h2 id="assignments-title" className="text-lg font-semibold text-foreground mb-4">
+            <h2 id="assignments-title" className="text-lg font-semibold text-black mb-4">
               任务布置
             </h2>
             <div className="grid gap-4 lg:grid-cols-2">
@@ -834,7 +832,7 @@ export default function TeacherDashboard() {
                     <div>
                       <label
                         htmlFor="assign-task"
-                        className="mb-1 block text-xs font-medium text-muted-foreground"
+                        className="mb-1 block text-xs font-medium text-[#999999]"
                       >
                         任务
                       </label>
@@ -842,7 +840,7 @@ export default function TeacherDashboard() {
                         id="assign-task"
                         value={assignTaskId}
                         onChange={(e) => setAssignTaskId(e.target.value)}
-                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                        className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-black focus:ring-2 focus:ring-black/50"
                       >
                         <option value="">选择任务...</option>
                         <option value="fib_L2">fib_L2 (递归 / Fibonacci)</option>
@@ -852,7 +850,7 @@ export default function TeacherDashboard() {
                     <div>
                       <label
                         htmlFor="assign-class"
-                        className="mb-1 block text-xs font-medium text-muted-foreground"
+                        className="mb-1 block text-xs font-medium text-[#999999]"
                       >
                         班级
                       </label>
@@ -860,7 +858,7 @@ export default function TeacherDashboard() {
                         id="assign-class"
                         value={assignClassId}
                         onChange={(e) => setAssignClassId(e.target.value)}
-                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                        className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-black focus:ring-2 focus:ring-black/50"
                       >
                         <option value="">选择班级...</option>
                         {classes.map((c) => (
@@ -873,7 +871,7 @@ export default function TeacherDashboard() {
                     <div>
                       <label
                         htmlFor="assign-deadline"
-                        className="mb-1 block text-xs font-medium text-muted-foreground"
+                        className="mb-1 block text-xs font-medium text-[#999999]"
                       >
                         截止时间 (可选)
                       </label>
@@ -882,7 +880,7 @@ export default function TeacherDashboard() {
                         type="datetime-local"
                         value={assignDeadline}
                         onChange={(e) => setAssignDeadline(e.target.value)}
-                        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                        className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-black focus:ring-2 focus:ring-black/50"
                       />
                     </div>
                     <Button
@@ -901,18 +899,18 @@ export default function TeacherDashboard() {
                 <CardContent className="pt-4">
                   <div className="max-h-[240px] overflow-y-auto space-y-2">
                     {assignments.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">暂无布置任务</p>
+                      <p className="text-sm text-[#666666] text-center py-4">暂无布置任务</p>
                     ) : (
                       assignments.map((a) => (
                         <div
                           key={a.id}
-                          className="flex items-center justify-between rounded-lg border border-border/50 px-3 py-2"
+                          className="flex items-center justify-between rounded-none border border-[#dddddd]/50 px-3 py-2"
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-foreground truncate">
+                            <div className="text-sm font-medium text-black truncate">
                               {a.task?.title ?? a.taskId}
                             </div>
-                            <div className="text-xs text-muted-foreground truncate">
+                            <div className="text-xs text-[#999999] truncate">
                               {a.class?.name ?? a.classId}
                               {a.deadline && (
                                 <span className="ml-2">
@@ -933,11 +931,11 @@ export default function TeacherDashboard() {
           {/* 热力图 */}
           <section id="heatmap" aria-labelledby="heatmap-title">
             <div className="flex items-center justify-between mb-4">
-              <h2 id="heatmap-title" className="text-lg font-semibold text-foreground">
+              <h2 id="heatmap-title" className="text-lg font-semibold text-black">
                 任务热力图
               </h2>
-              <span className="text-xs text-muted-foreground">
-                按通过率着色：绿≥90% 黄≥70% 橙≥50% 红&lt;50%
+              <span className="text-xs text-[#999999]">
+                按通过率着色：黑≥90% 深灰≥70% 灰≥50% 浅灰&lt;50%
               </span>
             </div>
             <Card>
@@ -945,41 +943,33 @@ export default function TeacherDashboard() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm" role="table">
                     <thead>
-                      <tr className="border-b border-border">
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">
-                          任务
-                        </th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">
-                          提交数
-                        </th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">
-                          通过率
-                        </th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">
-                          热力
-                        </th>
+                      <tr className="border-b border-[#dddddd]">
+                        <th className="text-left px-4 py-3 font-medium text-[#999999]">任务</th>
+                        <th className="text-left px-4 py-3 font-medium text-[#999999]">提交数</th>
+                        <th className="text-left px-4 py-3 font-medium text-[#999999]">通过率</th>
+                        <th className="text-left px-4 py-3 font-medium text-[#999999]">热力</th>
                       </tr>
                     </thead>
                     <tbody>
                       {heatData.map((item) => (
                         <tr
                           key={item.taskId}
-                          className="border-b border-border/50 hover:bg-muted/50"
+                          className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
                         >
-                          <td className="px-4 py-3 font-medium text-foreground">{item.taskName}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{item.submissions}</td>
-                          <td className="px-4 py-3 text-foreground">
+                          <td className="px-4 py-3 font-medium text-black">{item.taskName}</td>
+                          <td className="px-4 py-3 text-[#999999]">{item.submissions}</td>
+                          <td className="px-4 py-3 text-black">
                             {(item.passRate * 100).toFixed(1)}%
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
                               <div
-                                className={`h-4 w-24 rounded border ${getHeatColor(item.passRate)}`}
+                                className={`h-4 w-24 rounded-none border ${getHeatColor(item.passRate)}`}
                                 style={{ width: `${Math.max(item.passRate * 100, 4)}%` }}
                                 role="img"
                                 aria-label={`${item.taskName} 通过率 ${(item.passRate * 100).toFixed(1)}%`}
                               />
-                              <span className="text-xs text-muted-foreground w-16 text-right">
+                              <span className="text-xs text-[#999999] w-16 text-right">
                                 {(item.passRate * 100).toFixed(0)}%
                               </span>
                             </div>

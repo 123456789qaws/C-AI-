@@ -16,6 +16,7 @@ import {
   Clock,
   AlertCircle,
 } from 'lucide-react';
+import { getToken } from '@/lib/auth/client';
 
 /* ============================================================
  * Types
@@ -40,14 +41,19 @@ interface StudentAssignment {
   assignedAt: string;
 }
 
+interface EnrolledClass {
+  id: string;
+  name: string;
+  code: string;
+  teacherId: string;
+  teacher?: { id: string; name: string } | null;
+  _count?: { enrollments: number; assignments: number };
+  joinedAt: string;
+}
+
 /* ============================================================
  * Helpers
  * ============================================================ */
-
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('luna-token');
-}
 
 function deadlineCountdown(deadline: string): { text: string; urgent: boolean; expired: boolean } {
   const now = Date.now();
@@ -67,33 +73,44 @@ function deadlineCountdown(deadline: string): { text: string; urgent: boolean; e
 
 function StudentView() {
   const [assignments, setAssignments] = useState<StudentAssignment[]>([]);
+  const [enrolledClasses, setEnrolledClasses] = useState<EnrolledClass[]>([]);
   const [loading, setLoading] = useState(true);
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [joinMsg, setJoinMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [showExpired, setShowExpired] = useState(false);
 
-  const fetchAssignments = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     const token = getToken();
     if (!token) return;
     try {
-      const res = await fetch('/api/assignments/student?includeExpired=true', {
+      // Fetch enrolled classes
+      const classesRes = await fetch('/api/classes/student', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) {
-        const data = await res.json();
-        setAssignments(data.assignments ?? []);
+      if (classesRes.ok) {
+        const classesData = await classesRes.json();
+        setEnrolledClasses(classesData.classes ?? []);
+      }
+
+      // Fetch assignments
+      const assignmentsRes = await fetch('/api/assignments/student?includeExpired=true', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (assignmentsRes.ok) {
+        const assignmentsData = await assignmentsRes.json();
+        setAssignments(assignmentsData.assignments ?? []);
       }
     } catch {
-      console.error('[classes] fetch assignments failed');
+      console.error('[classes] fetch data failed');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchAssignments();
-  }, [fetchAssignments]);
+    fetchData();
+  }, [fetchData]);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,7 +131,7 @@ function StudentView() {
         const data = await res.json();
         setJoinMsg({ type: 'ok', text: `成功加入班级: ${data.class?.name ?? joinCode}` });
         setJoinCode('');
-        fetchAssignments();
+        fetchData();
       } else {
         const err = await res.json().catch(() => ({}));
         setJoinMsg({ type: 'err', text: err.error ?? '加入失败' });
@@ -126,7 +143,7 @@ function StudentView() {
     }
   };
 
-  // Group by class
+  // Group by class (from assignments) and also include enrolled classes without assignments
   const classMap = new Map<
     string,
     { name: string; code: string; assignments: StudentAssignment[] }
@@ -136,6 +153,12 @@ function StudentView() {
       classMap.set(a.classId, { name: a.className, code: a.classCode, assignments: [] });
     }
     classMap.get(a.classId)!.assignments.push(a);
+  }
+  // Include enrolled classes that have no assignments yet
+  for (const ec of enrolledClasses) {
+    if (!classMap.has(ec.id)) {
+      classMap.set(ec.id, { name: ec.name, code: ec.code, assignments: [] });
+    }
   }
   const classList = Array.from(classMap.entries());
 
@@ -152,17 +175,14 @@ function StudentView() {
       {/* Welcome + Join */}
       <div className="flex flex-col sm:flex-row sm:items-end gap-4">
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-foreground">我的学习</h1>
-          <p className="text-sm text-muted-foreground mt-1">加入班级后即可开始完成编程任务</p>
+          <h1 className="text-xl font-bold text-black">我的学习</h1>
+          <p className="text-sm text-[#666666] mt-1">加入班级后即可开始完成编程任务</p>
         </div>
 
         {/* Join class */}
         <form onSubmit={handleJoin} className="flex items-end gap-2">
           <div>
-            <label
-              htmlFor="join-code"
-              className="mb-1 block text-xs font-medium text-muted-foreground"
-            >
+            <label htmlFor="join-code" className="mb-1 block text-xs font-medium text-[#999999]">
               邀请码
             </label>
             <input
@@ -172,7 +192,7 @@ function StudentView() {
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
               placeholder="6 位邀请码"
               maxLength={6}
-              className="w-36 rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-sm text-foreground uppercase placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+              className="w-36 rounded-none border border-[#dddddd] bg-white px-3 py-1.5 font-mono text-sm text-black uppercase placeholder:text-[#666666] outline-none focus:border-black focus:ring-2 focus:ring-black/50"
               required
             />
           </div>
@@ -184,10 +204,8 @@ function StudentView() {
 
       {joinMsg && (
         <div
-          className={`rounded-lg px-3 py-2 text-sm ${
-            joinMsg.type === 'ok'
-              ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
-              : 'bg-destructive/10 text-destructive'
+          className={`rounded-none px-3 py-2 text-sm ${
+            joinMsg.type === 'ok' ? 'bg-black/10 text-black' : 'bg-black/10 text-black'
           }`}
         >
           {joinMsg.text}
@@ -200,30 +218,28 @@ function StudentView() {
           <Card size="sm">
             <CardContent className="pt-3">
               <div className="flex items-center gap-2">
-                <BookOpen className="size-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">已加入班级</span>
+                <BookOpen className="size-4 text-[#666666]" />
+                <span className="text-xs text-[#999999]">已加入班级</span>
               </div>
-              <div className="text-2xl font-bold text-foreground mt-1">{classList.length}</div>
+              <div className="text-2xl font-bold text-black mt-1">{classList.length}</div>
             </CardContent>
           </Card>
           <Card size="sm">
             <CardContent className="pt-3">
               <div className="flex items-center gap-2">
-                <Clock className="size-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">待完成任务</span>
+                <Clock className="size-4 text-[#666666]" />
+                <span className="text-xs text-[#999999]">待完成任务</span>
               </div>
-              <div className="text-2xl font-bold text-foreground mt-1">
-                {activeAssignments.length}
-              </div>
+              <div className="text-2xl font-bold text-black mt-1">{activeAssignments.length}</div>
             </CardContent>
           </Card>
           <Card size="sm">
             <CardContent className="pt-3">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="size-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">已截止任务</span>
+                <CheckCircle2 className="size-4 text-[#666666]" />
+                <span className="text-xs text-[#999999]">已截止任务</span>
               </div>
-              <div className="text-2xl font-bold text-muted-foreground mt-1">
+              <div className="text-2xl font-bold text-[#999999] mt-1">
                 {expiredAssignments.length}
               </div>
             </CardContent>
@@ -232,17 +248,15 @@ function StudentView() {
       )}
 
       {/* Loading */}
-      {loading && <p className="text-sm text-muted-foreground text-center py-8">加载中...</p>}
+      {loading && <p className="text-sm text-[#666666] text-center py-8">加载中...</p>}
 
       {/* Empty state */}
       {!loading && classList.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center">
-            <Users className="size-8 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">尚未加入任何班级</p>
-            <p className="text-xs text-muted-foreground/70 mt-1">
-              请向老师获取邀请码并输入上方加入
-            </p>
+            <Users className="size-8 text-[#999999]/30 mx-auto mb-3" />
+            <p className="text-sm text-[#666666]">尚未加入任何班级</p>
+            <p className="text-xs text-[#999999]/70 mt-1">请向老师获取邀请码并输入上方加入</p>
           </CardContent>
         </Card>
       )}
@@ -257,7 +271,7 @@ function StudentView() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0">
                       <CardTitle className="text-base truncate">{cls.name}</CardTitle>
-                      <span className="inline-flex shrink-0 items-center rounded bg-muted px-2 py-0.5 font-mono text-xs font-semibold text-muted-foreground">
+                      <span className="inline-flex shrink-0 items-center rounded-none bg-[#f7f7f7] px-2 py-0.5 font-mono text-xs font-semibold text-[#999999]">
                         {cls.code}
                       </span>
                     </div>
@@ -271,7 +285,7 @@ function StudentView() {
                 </CardHeader>
                 <CardContent>
                   {cls.assignments.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">暂无分配任务</p>
+                    <p className="text-xs text-[#999999]">暂无分配任务</p>
                   ) : (
                     <div className="space-y-2">
                       {cls.assignments.map((a) => {
@@ -279,13 +293,13 @@ function StudentView() {
                         return (
                           <div
                             key={`${a.taskId}-${a.classId}`}
-                            className="flex items-center justify-between rounded-lg border border-border/50 px-3 py-2 min-w-0"
+                            className="flex items-center justify-between rounded-none border border-[#dddddd]/50 px-3 py-2 min-w-0"
                           >
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-foreground truncate">
+                              <div className="text-sm font-medium text-black truncate">
                                 {a.taskTitle}
                               </div>
-                              <div className="text-xs text-muted-foreground">
+                              <div className="text-xs text-[#666666]">
                                 分配于 {new Date(a.assignedAt).toLocaleDateString('zh-CN')}
                               </div>
                             </div>
@@ -294,10 +308,10 @@ function StudentView() {
                                 <span
                                   className={`text-xs font-medium ${
                                     cd.expired
-                                      ? 'text-muted-foreground'
+                                      ? 'text-[#999999]'
                                       : cd.urgent
-                                        ? 'text-destructive'
-                                        : 'text-green-600 dark:text-green-400'
+                                        ? 'text-black'
+                                        : 'text-black/60'
                                   }`}
                                 >
                                   {cd.text}
@@ -324,7 +338,7 @@ function StudentView() {
             <button
               type="button"
               onClick={() => setShowExpired(!showExpired)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1 text-xs text-[#999999] hover:text-black transition-colors"
             >
               <AlertCircle className="size-3" />
               {showExpired ? '收起已截止任务' : `查看已截止任务 (${expiredAssignments.length})`}
@@ -345,6 +359,7 @@ function TeacherView() {
   const [loading, setLoading] = useState(true);
   const [newClassName, setNewClassName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [showCreator, setShowCreator] = useState(false);
 
   const fetchClasses = useCallback(async () => {
@@ -370,8 +385,13 @@ function TeacherView() {
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
     const token = getToken();
-    if (!token || !newClassName.trim()) return;
+    if (!token) {
+      setCreateError('登录已过期，请重新登录');
+      return;
+    }
+    if (!newClassName.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       const res = await fetch('/api/classes', {
         method: 'POST',
@@ -381,9 +401,12 @@ function TeacherView() {
       if (res.ok) {
         setNewClassName('');
         fetchClasses();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setCreateError(err.error ?? `创建失败 (${res.status})`);
       }
     } catch {
-      console.error('[classes] create class failed');
+      setCreateError('网络错误，请重试');
     } finally {
       setCreating(false);
     }
@@ -393,8 +416,8 @@ function TeacherView() {
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-foreground">班级管理</h1>
-        <p className="text-sm text-muted-foreground mt-1">创建和管理你的教学班级</p>
+        <h1 className="text-xl font-bold text-black">班级管理</h1>
+        <p className="text-sm text-[#666666] mt-1">创建和管理你的教学班级</p>
       </div>
 
       {/* Create class form */}
@@ -407,7 +430,7 @@ function TeacherView() {
             <div className="flex-1">
               <label
                 htmlFor="new-class-name"
-                className="mb-1 block text-xs font-medium text-muted-foreground"
+                className="mb-1 block text-xs font-medium text-[#999999]"
               >
                 班级名称
               </label>
@@ -417,7 +440,7 @@ function TeacherView() {
                 value={newClassName}
                 onChange={(e) => setNewClassName(e.target.value)}
                 placeholder="例如: 2024级C语言1班"
-                className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
+                className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 text-sm text-black placeholder:text-[#666666] outline-none focus:border-black focus:ring-2 focus:ring-black/50"
                 required
               />
             </div>
@@ -426,19 +449,20 @@ function TeacherView() {
               {creating ? '创建中...' : '创建班级'}
             </Button>
           </form>
+          {createError && <p className="mt-2 text-sm text-black">{createError}</p>}
         </CardContent>
       </Card>
 
       {/* Loading */}
-      {loading && <p className="text-sm text-muted-foreground text-center py-8">加载中...</p>}
+      {loading && <p className="text-sm text-[#666666] text-center py-8">加载中...</p>}
 
       {/* Empty */}
       {!loading && classes.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center">
-            <BookOpen className="size-8 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">还没有创建任何班级</p>
-            <p className="text-xs text-muted-foreground/70 mt-1">创建班级后即可布置任务给学生</p>
+            <BookOpen className="size-8 text-[#999999]/30 mx-auto mb-3" />
+            <p className="text-sm text-[#666666]">还没有创建任何班级</p>
+            <p className="text-xs text-[#999999]/70 mt-1">创建班级后即可布置任务给学生</p>
           </CardContent>
         </Card>
       )}
@@ -448,22 +472,22 @@ function TeacherView() {
         <div className="grid gap-4 sm:grid-cols-2">
           {classes.map((cls) => (
             <Link key={cls.id} href={`/classes/${cls.id}`} className="block group">
-              <Card className="h-full overflow-hidden transition-shadow hover:shadow-md group-hover:border-primary/30">
+              <Card className="h-full overflow-hidden transition-shadow hover:shadow-md group-hover:border-black/30">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base truncate">{cls.name}</CardTitle>
-                    <ChevronRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    <ChevronRight className="size-4 text-[#999999] group-hover:text-black transition-colors" />
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center rounded bg-muted px-2 py-0.5 font-mono text-xs font-semibold text-muted-foreground">
+                      <span className="inline-flex items-center rounded-none bg-[#f7f7f7] px-2 py-0.5 font-mono text-xs font-semibold text-[#999999]">
                         {cls.code}
                       </span>
-                      <span className="text-xs text-muted-foreground">邀请码</span>
+                      <span className="text-xs text-[#999999]">邀请码</span>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-4 text-xs text-[#999999]">
                       <span className="flex items-center gap-1">
                         <Users className="size-3" />
                         {cls._count?.enrollments ?? 0} 学生
@@ -509,7 +533,7 @@ export default function ClassesPage() {
     return (
       <AuthGuard>
         <div className="flex min-h-[50vh] items-center justify-center">
-          <p className="text-sm text-muted-foreground">加载中...</p>
+          <p className="text-sm text-[#666666]">加载中...</p>
         </div>
       </AuthGuard>
     );
@@ -519,7 +543,7 @@ export default function ClassesPage() {
 
   return (
     <AuthGuard>
-      <div className="flex flex-col p-6 max-w-4xl mx-auto min-h-full">
+      <div className="flex flex-col p-6 max-w-4xl mx-auto min-h-full gap-12">
         {isTeacher ? <TeacherView /> : <StudentView />}
       </div>
     </AuthGuard>

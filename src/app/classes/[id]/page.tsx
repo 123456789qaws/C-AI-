@@ -99,20 +99,16 @@ function TabBtn({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-        active
-          ? 'bg-primary text-primary-foreground'
-          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+      className={`flex items-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium transition-colors ${
+        active ? 'bg-black text-white' : 'text-[#666666] hover:bg-[#f7f7f7] hover:text-black'
       }`}
     >
       {icon}
       {label}
       {count !== undefined && (
         <span
-          className={`ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-xs font-semibold ${
-            active
-              ? 'bg-primary-foreground/20 text-primary-foreground'
-              : 'bg-muted text-muted-foreground'
+          className={`ml-1 inline-flex items-center justify-center rounded-none px-1.5 text-xs font-semibold ${
+            active ? 'bg-white/20 text-white' : 'bg-[#f7f7f7] text-[#999999]'
           }`}
         >
           {count}
@@ -265,7 +261,7 @@ export default function ClassDetailPage() {
     return (
       <AuthGuard roles={isTeacher ? ['TEACHER', 'ADMIN'] : ['STUDENT']}>
         <div className="flex min-h-[50vh] items-center justify-center">
-          <p className="text-sm text-muted-foreground">加载中...</p>
+          <p className="text-sm text-[#666666]">加载中...</p>
         </div>
       </AuthGuard>
     );
@@ -276,7 +272,7 @@ export default function ClassDetailPage() {
     return (
       <AuthGuard roles={isTeacher ? ['TEACHER', 'ADMIN'] : ['STUDENT']}>
         <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
-          <p className="text-sm text-muted-foreground">班级不存在或无权访问</p>
+          <p className="text-sm text-[#666666]">班级不存在或无权访问</p>
           <Button variant="outline" size="sm" onClick={() => router.push('/classes')}>
             返回班级列表
           </Button>
@@ -302,8 +298,8 @@ export default function ClassDetailPage() {
             <ArrowLeft className="size-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-bold text-foreground truncate">{cls.name}</h1>
-            <p className="text-sm text-muted-foreground">
+            <h1 className="text-lg font-bold text-black truncate">{cls.name}</h1>
+            <p className="text-sm text-[#666666]">
               班级编码: <span className="font-mono font-semibold">{cls.code}</span>
               {isTeacher && students.length > 0 && (
                 <span className="ml-2">· {students.length} 学生</span>
@@ -313,7 +309,7 @@ export default function ClassDetailPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 border-b border-border pb-1 overflow-x-auto">
+        <div className="flex gap-1 border-b border-[#dddddd] pb-1 overflow-x-auto">
           {tabs.map((tab) => (
             <TabBtn
               key={tab.key}
@@ -353,7 +349,7 @@ export default function ClassDetailPage() {
                 </CardHeader>
                 <CardContent>
                   {assignments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">尚未布置任务</p>
+                    <p className="text-sm text-[#666666]">尚未布置任务</p>
                   ) : (
                     <div className="space-y-2">
                       {assignments.map((a) => {
@@ -361,13 +357,13 @@ export default function ClassDetailPage() {
                         return (
                           <div
                             key={a.id}
-                            className="flex items-center justify-between rounded-lg border border-border/50 px-3 py-2 min-w-0"
+                            className="flex items-center justify-between rounded-none border border-[#dddddd]/50 px-3 py-2 min-w-0"
                           >
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-foreground truncate">
+                              <div className="text-sm font-medium text-black truncate">
                                 {a.task?.title ?? a.taskId}
                               </div>
-                              <div className="text-xs text-muted-foreground">
+                              <div className="text-xs text-[#666666]">
                                 布置于 {new Date(a.assignedAt).toLocaleDateString('zh-CN')}
                                 {a.teacher && <span className="ml-1">· {a.teacher.name}</span>}
                               </div>
@@ -377,10 +373,10 @@ export default function ClassDetailPage() {
                                 <span
                                   className={`text-xs font-medium ${
                                     cd.expired
-                                      ? 'text-muted-foreground'
+                                      ? 'text-[#999999]'
                                       : cd.urgent
-                                        ? 'text-destructive'
-                                        : 'text-green-600 dark:text-green-400'
+                                        ? 'text-black'
+                                        : 'text-black/60'
                                   }`}
                                 >
                                   {cd.expired ? '已截止' : cd.text}
@@ -403,8 +399,8 @@ export default function ClassDetailPage() {
               {studentAssignments.length === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
-                    <BookOpen className="size-8 text-muted-foreground/30 mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground">暂无分配任务</p>
+                    <BookOpen className="size-8 text-[#999999]/30 mx-auto mb-3" />
+                    <p className="text-sm text-[#666666]">暂无分配任务</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -419,10 +415,10 @@ export default function ClassDetailPage() {
                         <CardContent className="py-4">
                           <div className="flex items-center justify-between min-w-0">
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">
+                              <div className="text-sm font-medium text-black group-hover:text-black transition-colors truncate">
                                 {a.taskTitle}
                               </div>
-                              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                              <div className="flex items-center gap-2 mt-1 text-xs text-[#666666]">
                                 <span>
                                   分配于 {new Date(a.assignedAt).toLocaleDateString('zh-CN')}
                                 </span>
@@ -433,10 +429,10 @@ export default function ClassDetailPage() {
                                 <span
                                   className={`text-xs font-medium ${
                                     cd.expired
-                                      ? 'text-muted-foreground'
+                                      ? 'text-[#999999]'
                                       : cd.urgent
-                                        ? 'text-destructive'
-                                        : 'text-green-600 dark:text-green-400'
+                                        ? 'text-black'
+                                        : 'text-black/60'
                                   }`}
                                 >
                                   <Clock className="size-3 inline mr-0.5" />
@@ -466,9 +462,9 @@ export default function ClassDetailPage() {
               <CardContent>
                 {students.length === 0 ? (
                   <div className="py-8 text-center">
-                    <Users className="size-8 text-muted-foreground/30 mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground">暂无学生加入</p>
-                    <p className="text-xs text-muted-foreground/70 mt-1">
+                    <Users className="size-8 text-[#999999]/30 mx-auto mb-3" />
+                    <p className="text-sm text-[#666666]">暂无学生加入</p>
+                    <p className="text-xs text-[#999999]/70 mt-1">
                       将邀请码 <span className="font-mono font-semibold">{cls.code}</span>{' '}
                       分享给学生
                     </p>
@@ -477,24 +473,23 @@ export default function ClassDetailPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm" role="table">
                       <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                            学号
-                          </th>
-                          <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                            姓名
-                          </th>
-                          <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                        <tr className="border-b border-[#dddddd]">
+                          <th className="text-left px-3 py-2 font-medium text-[#999999]">学号</th>
+                          <th className="text-left px-3 py-2 font-medium text-[#999999]">姓名</th>
+                          <th className="text-left px-3 py-2 font-medium text-[#999999]">
                             加入时间
                           </th>
                         </tr>
                       </thead>
                       <tbody>
                         {students.map((s) => (
-                          <tr key={s.id} className="border-b border-border/50 hover:bg-muted/50">
-                            <td className="px-3 py-2 font-mono text-foreground">{s.id}</td>
-                            <td className="px-3 py-2 text-foreground">{s.name}</td>
-                            <td className="px-3 py-2 text-muted-foreground">
+                          <tr
+                            key={s.id}
+                            className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
+                          >
+                            <td className="px-3 py-2 font-mono text-black">{s.id}</td>
+                            <td className="px-3 py-2 text-black">{s.name}</td>
+                            <td className="px-3 py-2 text-[#999999]">
                               {new Date(s.joinedAt).toLocaleString('zh-CN')}
                             </td>
                           </tr>
@@ -515,36 +510,33 @@ export default function ClassDetailPage() {
               </CardHeader>
               <CardContent>
                 {students.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">暂无学生数据</p>
+                  <p className="text-sm text-[#666666]">暂无学生数据</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm" role="table">
                       <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                            学号
-                          </th>
-                          <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                            姓名
-                          </th>
-                          <th className="text-center px-3 py-2 font-medium text-muted-foreground">
+                        <tr className="border-b border-[#dddddd]">
+                          <th className="text-left px-3 py-2 font-medium text-[#999999]">学号</th>
+                          <th className="text-left px-3 py-2 font-medium text-[#999999]">姓名</th>
+                          <th className="text-center px-3 py-2 font-medium text-[#999999]">
                             已布置任务
                           </th>
-                          <th className="text-center px-3 py-2 font-medium text-muted-foreground">
-                            状态
-                          </th>
+                          <th className="text-center px-3 py-2 font-medium text-[#999999]">状态</th>
                         </tr>
                       </thead>
                       <tbody>
                         {students.map((s) => (
-                          <tr key={s.id} className="border-b border-border/50 hover:bg-muted/50">
-                            <td className="px-3 py-2 font-mono text-foreground">{s.id}</td>
-                            <td className="px-3 py-2 text-foreground">{s.name}</td>
-                            <td className="px-3 py-2 text-center text-muted-foreground">
+                          <tr
+                            key={s.id}
+                            className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
+                          >
+                            <td className="px-3 py-2 font-mono text-black">{s.id}</td>
+                            <td className="px-3 py-2 text-black">{s.name}</td>
+                            <td className="px-3 py-2 text-center text-[#999999]">
                               {assignments.length}
                             </td>
                             <td className="px-3 py-2 text-center">
-                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-1 text-xs text-[#999999]">
                                 <Trophy className="size-3" />
                                 待统计
                               </span>
@@ -553,7 +545,7 @@ export default function ClassDetailPage() {
                         ))}
                       </tbody>
                     </table>
-                    <p className="mt-3 text-xs text-muted-foreground">
+                    <p className="mt-3 text-xs text-[#999999]">
                       <CheckCircle2 className="size-3 inline mr-0.5" />
                       分数数据将在学生完成关卡后自动更新
                     </p>

@@ -54,7 +54,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-3rem)] items-center justify-center bg-background px-4">
+    <div className="flex min-h-[calc(100vh-3rem)] items-center justify-center bg-white px-4">
       <Card className="w-full max-w-sm overflow-hidden">
         <CardHeader>
           <CardTitle>Luna for C</CardTitle>
@@ -64,7 +64,7 @@ function LoginForm() {
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {/* ID field */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="login-id" className="text-sm font-medium text-foreground">
+              <label htmlFor="login-id" className="text-sm font-medium text-black">
                 账号
               </label>
               <input
@@ -75,13 +75,13 @@ function LoginForm() {
                 placeholder="例如 s0001 / t0001"
                 required
                 autoComplete="username"
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/30"
+                className="h-9 rounded-none border border-[#dddddd] bg-white px-3 text-sm text-black placeholder:text-[#666666] outline-none transition-colors focus:border-black focus:ring-2 focus:ring-black/30"
               />
             </div>
 
             {/* Password field */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="login-password" className="text-sm font-medium text-foreground">
+              <label htmlFor="login-password" className="text-sm font-medium text-black">
                 密码
               </label>
               <input
@@ -92,16 +92,13 @@ function LoginForm() {
                 placeholder="密码"
                 required
                 autoComplete="current-password"
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/30"
+                className="h-9 rounded-none border border-[#dddddd] bg-white px-3 text-sm text-black placeholder:text-[#666666] outline-none transition-colors focus:border-black focus:ring-2 focus:ring-black/30"
               />
             </div>
 
             {/* Error message */}
             {error && (
-              <div
-                role="alert"
-                className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
+              <div role="alert" className="rounded-none bg-black/10 px-3 py-2 text-sm text-black">
                 {error}
               </div>
             )}
@@ -112,7 +109,7 @@ function LoginForm() {
             </Button>
 
             {/* Hint */}
-            <p className="text-center text-xs text-muted-foreground">
+            <p className="text-center text-xs text-[#999999]">
               学生 s0001–s0005 / 教师 t0001–t0002 / 管理员 a0001 · 密码 123456
             </p>
           </form>
