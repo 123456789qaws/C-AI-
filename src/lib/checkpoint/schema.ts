@@ -60,6 +60,8 @@ export const OnFailSchema = z.object({
   valgrind_hint: z.boolean().optional(),
 });
 
+const emptyToUndef = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
+
 export const CheckpointSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -74,15 +76,15 @@ export const CheckpointSchema = z.object({
   /** Checkpoint kind: AI链 vs 代码题；缺省按 gates 推断 */
   kind: z.enum(['ai', 'code']).optional(),
   /** Checkpoint-level introduction / extended description */
-  intro: z.string().optional(),
-  description: z.string().optional(),
+  intro: z.preprocess(emptyToUndef, z.string().optional()),
+  description: z.preprocess(emptyToUndef, z.string().optional()),
   /** AI链问题列表（teacher 提供） */
   aiChain: z.array(z.string().min(1)).optional(),
   /** 代码题初始代码片段 */
-  initialCode: z.string().optional(),
-  /** 代码题测试文件路径（alias: tests） */
-  testsPath: z.string().min(1).optional(),
-  tests: z.string().min(1).optional(),
+  initialCode: z.preprocess(emptyToUndef, z.string().optional()),
+  /** 代码题测试文件路径（alias: tests） — 空串视作未提供 */
+  testsPath: z.preprocess(emptyToUndef, z.string().min(1).optional()),
+  tests: z.preprocess(emptyToUndef, z.string().min(1).optional()),
   /** 是否允许 AI 生成测试样例 */
   allowAIGenerateTests: z.boolean().optional(),
 });
@@ -93,10 +95,10 @@ export const TaskSchema = z.object({
     .min(1)
     .regex(/^[A-Za-z0-9_-]+$/, 'task id 仅允许字母/数字/_/-'),
   title: z.string().min(1),
-  description: z.string().min(1).optional(),
-  intro: z.string().optional(),
+  description: z.preprocess(emptyToUndef, z.string().min(1).optional()),
+  intro: z.preprocess(emptyToUndef, z.string().optional()),
   checkpointMode: z.enum(['sequential', 'free']).default('sequential'),
-  authorId: z.string().min(1).optional(),
+  authorId: z.preprocess(emptyToUndef, z.string().min(1).optional()),
   checkpoints: z.array(CheckpointSchema).min(1),
 });
 

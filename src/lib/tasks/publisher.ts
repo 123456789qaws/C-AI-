@@ -17,9 +17,77 @@ const TASKS_DIR = path.join(process.cwd(), 'tasks');
  * - Writes hidden_tests JSON artifacts if generated
  * - Upserts prisma.task (best-effort, never blocks on DB failure)
  */
+function isRawJsonTests(s: string): boolean {
+  const t = s.trim();
+  return t.startsWith('[') || (t.startsWith('{') && t.includes('"tests"'));
+}
+
 export async function publishTask(raw: unknown): Promise<{ task: Task; aiGenerated: string[] }> {
+  // raw may contain _rawTestsJson from route normalization — extract before zod parse
+  const rawObj = raw as Record<string, unknown>;
+  const rawTestsMap = new Map<string, string>();
+  if (Array.isArray((rawObj as Record<string, unknown>).checkpoints)) {
+    for (const cp of (rawObj as Record<string, unknown>).checkpoints as Record<string, unknown>[]) {
+      if (typeof cp._rawTestsJson === 'string') {
+        rawTestsMap.set(String(cp.id), cp._rawTestsJson as string);
+        delete cp._rawTestsJson;
+      } else if (typeof cp.tests === 'string' && isRawJsonTests(cp.tests as string)) {
+        // inline JSON content supplied as tests path (frontend fallback)
+        rawTestsMap.set(String(cp.id), cp.tests as string);
+        // normalize to a real path before validation
+        const fallback = `hidden_tests/${String((rawObj as Record<string, unknown>).id ?? 'task')}_${String(cp.id)}.json`;
+        cp.tests = fallback;
+        cp.testsPath = fallback;
+        if (Array.isArray(cp.gates)) {
+          for (const g of cp.gates as Record<string, unknown>[]) {
+            if (
+              g.type === 'test_pass' &&
+              typeof g.tests === 'string' &&
+              isRawJsonTests(g.tests as string)
+            ) {
+              g.tests = fallback;
+            }
+          }
+        }
+      }
+    }
+  }
+
   const task = TaskSchema.parse(raw);
   const aiGenerated: string[] = [];
+
+  // Materialize raw JSON tests that were provided inline (no AI needed)
+  for (const cp of task.checkpoints) {
+    const rawJson = rawTestsMap.get(cp.id);
+    if (rawJson) {
+      const testsRef = cp.tests ?? cp.testsPath ?? `hidden_tests/${task.id}_${cp.id}.json`;
+      // Try to parse rawJson as either array or {tests:[...]}
+      let toWrite: unknown = null;
+      try {
+        const p = JSON.parse(rawJson);
+        if (Array.isArray(p)) toWrite = { tests: p };
+        else if (p && typeof p === 'object' && Array.isArray((p as Record<string, unknown>).tests))
+          toWrite = p;
+        else toWrite = { tests: [] };
+      } catch {
+        toWrite = null;
+      }
+      if (toWrite) {
+        const validated = HiddenTestsFileSchema.safeParse(toWrite);
+        if (validated.success) {
+          const abs = path.resolve(process.cwd(), testsRef);
+          await mkdir(path.dirname(abs), { recursive: true });
+          await writeFile(abs, JSON.stringify(validated.data, null, 2), 'utf8');
+          // align gates if needed
+          for (const g of cp.gates) {
+            if (g.type === 'test_pass' && !g.tests) (g as { tests: string }).tests = testsRef;
+          }
+          cp.tests = testsRef;
+          cp.testsPath = testsRef;
+        }
+      }
+    }
+  }
 
   for (const cp of task.checkpoints) {
     const wantsAi = cp.allowAIGenerateTests === true;
@@ -37,7 +105,7 @@ export async function publishTask(raw: unknown): Promise<{ task: Task; aiGenerat
     } catch {
       exists = false;
     }
-    if (exists && hasTests) continue;
+    if (exists && hasTests && !rawTestsMap.has(cp.id)) continue;
 
     // Generate via AI
     const prompt = `为C语言任务生成隐藏测试JSON。任务：${task.title} (${task.intro ?? ''})；关卡：${cp.title} - ${cp.guide_question}；初始代码：${cp.initialCode ?? ''}。请输出JSON格式：{"tests":[{"input":"...","expected":"...","description":"用例性质描述"}]}，至少3组，覆盖边界与常规。只输出JSON，不要其他文本。`;

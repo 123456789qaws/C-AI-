@@ -49,6 +49,17 @@ function makeCheckpointDraft(): CheckpointDraft {
   };
 }
 
+function slugify(input: string): string {
+  return (
+    input
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 48) || `task-${Date.now()}`
+  );
+}
+
 /* ============================================================
  * TaskCreator Component
  * ============================================================ */
@@ -114,6 +125,7 @@ export default function TaskCreator({ onCreated }: TaskCreatorProps) {
       }
 
       // Build checkpoints array for the task
+      const taskId = slugify(title.trim());
       const builtCheckpoints = checkpoints.map((cp, index) => {
         const base = {
           id: `cp${index + 1}`,
@@ -128,36 +140,81 @@ export default function TaskCreator({ onCreated }: TaskCreatorProps) {
         };
 
         if (cp.kind === 'ai') {
+          const chain = cp.aiChain
+            .split('\n')
+            .map((s) => s.trim())
+            .filter(Boolean);
           return {
             ...base,
             gates: [
               {
                 type: 'ai_socratic' as const,
-                rubric: cp.rubric || cp.guideQuestion,
+                rubric: cp.rubric.trim() || cp.guideQuestion.trim(),
                 weight: 1.0,
               },
             ],
-            aiChain: cp.aiChain
-              .split('\n')
-              .map((s) => s.trim())
-              .filter(Boolean),
+            ...(chain.length > 0 ? { aiChain: chain } : {}),
           };
         } else {
+          const testsTrim = cp.tests.trim();
+          const isJsonArray = testsTrim.startsWith('[') || testsTrim.startsWith('{');
+          // gate tests must be a path; if user gave JSON, map to hidden_tests path, keep raw for backend
+          const fallbackPath = `hidden_tests/${taskId}_cp${index + 1}.json`;
+          let gateTests: string;
+          let checkpointTests: string | undefined;
+          let checkpointTestsPath: string | undefined;
+          if (cp.allowAIGenerate) {
+            // AI generates: use path (user-provided path or fallback)
+            if (testsTrim && !isJsonArray) {
+              gateTests = testsTrim;
+              checkpointTests = testsTrim;
+              checkpointTestsPath = testsTrim;
+            } else {
+              gateTests = fallbackPath;
+              checkpointTests = fallbackPath;
+              checkpointTestsPath = fallbackPath;
+              // if user gave JSON and wants AI, ignore JSON (AI will generate)
+            }
+          } else {
+            if (!testsTrim) {
+              // no tests and no AI — still need a path so zod passes; backend will keep placeholder
+              gateTests = fallbackPath;
+              checkpointTests = fallbackPath;
+              checkpointTestsPath = fallbackPath;
+            } else if (isJsonArray) {
+              gateTests = fallbackPath;
+              checkpointTests = testsTrim; // raw JSON, backend will materialize
+              checkpointTestsPath = fallbackPath;
+            } else {
+              gateTests = testsTrim;
+              checkpointTests = testsTrim;
+              checkpointTestsPath = testsTrim;
+            }
+          }
           return {
             ...base,
             gates: [
               {
                 type: 'test_pass' as const,
-                tests: cp.tests || '[]',
+                tests: gateTests,
                 weight: 1.0,
               },
             ],
-            initialCode: cp.initialCode,
-            tests: cp.tests,
+            ...(cp.initialCode.trim() ? { initialCode: cp.initialCode } : {}),
+            ...(checkpointTests ? { tests: checkpointTests } : {}),
+            ...(checkpointTestsPath ? { testsPath: checkpointTestsPath } : {}),
             allowAIGenerateTests: cp.allowAIGenerate,
           };
         }
       });
+
+      const payload: Record<string, unknown> = {
+        id: taskId,
+        title: title.trim(),
+        checkpointMode,
+        checkpoints: builtCheckpoints,
+      };
+      if (intro.trim()) payload.intro = intro.trim();
 
       const res = await fetch('/api/tasks', {
         method: 'POST',
@@ -165,12 +222,7 @@ export default function TaskCreator({ onCreated }: TaskCreatorProps) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          title: title.trim(),
-          intro: intro.trim(),
-          checkpointMode,
-          checkpoints: builtCheckpoints,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
