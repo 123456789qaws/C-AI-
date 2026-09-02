@@ -8,7 +8,16 @@ import { AuthGuard } from '@/components/auth/AuthGuard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AssignmentForm } from '@/components/class/AssignmentForm';
-import { ArrowLeft, Users, BookOpen, BarChart3, CheckCircle2, Clock, Trophy } from 'lucide-react';
+import {
+  ArrowLeft,
+  Users,
+  BookOpen,
+  BarChart3,
+  CheckCircle2,
+  Clock,
+  Trophy,
+  Trash2,
+} from 'lucide-react';
 
 /* ============================================================
  * Types
@@ -145,6 +154,8 @@ export default function ClassDetailPage() {
   // Student data
   const [studentAssignments, setStudentAssignments] = useState<StudentAssignment[]>([]);
 
+  const [deleting, setDeleting] = useState(false);
+
   // Fetch class info (both roles) - 学生即使无任务也应能看到已加入的班级
   const fetchClass = useCallback(async () => {
     try {
@@ -279,6 +290,28 @@ export default function ClassDetailPage() {
     }
   };
 
+  const handleDeleteClass = async () => {
+    if (!cls) return;
+    if (!confirm(`确定删除班级 "${cls.name}" ？该操作不可恢复`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/classes/${classId}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      if (res.ok) {
+        router.push('/classes');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error ?? `删除失败 (${res.status})`);
+      }
+    } catch {
+      alert('网络错误，请重试');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // Loading
   if (loading) {
     return (
@@ -329,6 +362,18 @@ export default function ClassDetailPage() {
               )}
             </p>
           </div>
+          {isTeacher && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={deleting}
+              onClick={handleDeleteClass}
+              aria-label="删除班级"
+            >
+              <Trash2 className="size-4 mr-1" />
+              {deleting ? '删除中...' : '删除班级'}
+            </Button>
+          )}
         </div>
 
         {/* Tabs */}

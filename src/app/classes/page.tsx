@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 import { getToken } from '@/lib/auth/client';
 
@@ -361,6 +362,8 @@ function TeacherView() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [showCreator, setShowCreator] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const fetchClasses = useCallback(async () => {
     const token = getToken();
@@ -409,6 +412,35 @@ function TeacherView() {
       setCreateError('网络错误，请重试');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDeleteClass = async (cls: ClassItem) => {
+    if (!confirm(`确定删除班级 "${cls.name}" ？该操作不可恢复`)) return;
+    const token = getToken();
+    if (!token) {
+      setCreateError('登录已过期，请重新登录');
+      return;
+    }
+    setDeletingId(cls.id);
+    setCreateError(null);
+    try {
+      const res = await fetch(`/api/classes/${cls.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setClasses((prev) => prev.filter((c) => c.id !== cls.id));
+        setToastMsg(`班级 "${cls.name}" 已删除`);
+        setTimeout(() => setToastMsg(null), 3000);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setCreateError(err.error ?? `删除失败 (${res.status})`);
+      }
+    } catch {
+      setCreateError('网络错误，请重试');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -467,18 +499,41 @@ function TeacherView() {
         </Card>
       )}
 
+      {toastMsg && (
+        <div className="rounded-none bg-black px-3 py-2 text-sm text-white">{toastMsg}</div>
+      )}
+
       {/* Class cards */}
       {!loading && classes.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {classes.map((cls) => (
-            <Link key={cls.id} href={`/classes/${cls.id}`} className="block group">
-              <Card className="h-full overflow-hidden transition-shadow hover:shadow-md group-hover:border-black/30">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base truncate">{cls.name}</CardTitle>
-                    <ChevronRight className="size-4 text-[#999999] group-hover:text-black transition-colors" />
-                  </div>
-                </CardHeader>
+            <Card
+              key={cls.id}
+              className="h-full overflow-hidden transition-shadow hover:shadow-md group"
+            >
+              <CardHeader>
+                <div className="flex items-center justify-between gap-2">
+                  <Link
+                    href={`/classes/${cls.id}`}
+                    className="flex flex-1 items-center justify-between gap-2 min-w-0 group/link"
+                  >
+                    <CardTitle className="text-base truncate group-hover/link:text-black">
+                      {cls.name}
+                    </CardTitle>
+                    <ChevronRight className="size-4 shrink-0 text-[#999999] group-hover/link:text-black transition-colors" />
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`删除班级 ${cls.name}`}
+                    disabled={deletingId === cls.id}
+                    onClick={() => handleDeleteClass(cls)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <Link href={`/classes/${cls.id}`} className="block">
                 <CardContent>
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
@@ -499,8 +554,8 @@ function TeacherView() {
                     </div>
                   </div>
                 </CardContent>
-              </Card>
-            </Link>
+              </Link>
+            </Card>
           ))}
         </div>
       )}
