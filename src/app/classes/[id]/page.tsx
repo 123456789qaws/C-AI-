@@ -145,7 +145,7 @@ export default function ClassDetailPage() {
   // Student data
   const [studentAssignments, setStudentAssignments] = useState<StudentAssignment[]>([]);
 
-  // Fetch class info (both roles)
+  // Fetch class info (both roles) - 学生即使无任务也应能看到已加入的班级
   const fetchClass = useCallback(async () => {
     try {
       if (isTeacher) {
@@ -156,21 +156,44 @@ export default function ClassDetailPage() {
           if (found) setCls(found);
         }
       } else {
-        // Student: get from assignments
-        const res = await fetch('/api/assignments/student?includeExpired=true', {
-          headers: authHeaders(),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const assignments: StudentAssignment[] = data.assignments ?? [];
-          const match = assignments.find((a) => a.classId === classId);
-          if (match) {
-            setCls({
-              id: classId,
-              name: match.className,
-              code: match.classCode,
-              teacherId: '',
-            });
+        // Student: 优先从已加入班级列表获取（无任务时 assignments 为空）
+        let found = false;
+        try {
+          const enrollRes = await fetch('/api/classes/student', { headers: authHeaders() });
+          if (enrollRes.ok) {
+            const enrollData = await enrollRes.json();
+            const classes: Array<{ id: string; name: string; code: string; teacherId?: string }> =
+              enrollData.classes ?? enrollData.enrolledClasses ?? [];
+            const match = classes.find((c) => c.id === classId);
+            if (match) {
+              setCls({
+                id: match.id,
+                name: match.name,
+                code: match.code,
+                teacherId: match.teacherId ?? '',
+              });
+              found = true;
+            }
+          }
+        } catch {
+          // ignore, fallback to assignments
+        }
+        if (!found) {
+          const res = await fetch('/api/assignments/student?includeExpired=true', {
+            headers: authHeaders(),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const assignments: StudentAssignment[] = data.assignments ?? [];
+            const match = assignments.find((a) => a.classId === classId);
+            if (match) {
+              setCls({
+                id: classId,
+                name: match.className,
+                code: match.classCode,
+                teacherId: '',
+              });
+            }
           }
         }
       }

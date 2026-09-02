@@ -13,9 +13,6 @@
  *
  * ⚠️ 安全边界：本组件不保存任何答案/判题规则/隐藏测试 —— 关卡定义的真源在
  * 服务端 tasks/*.json（server-only loader），判题只发生在服务端。
- *
- * ⚠️ MVP 占位：task 元数据（id/title/引导问题/解锁区间）内联自 tasks/fib_L2.json 的
- * 公开字段。GET /api/tasks/:id 路由建成后（后续 todo），应改为服务端下发，删除此常量。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -29,80 +26,44 @@ import type { LunaMessage } from '@/lib/mock/lunaMocks';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 /* ------------------------------------------------------------------ */
-/* MVP 任务元数据（镜像 tasks/fib_L2.json 公开字段，仅展示用途）        */
+/* Types                                                              */
 /* ------------------------------------------------------------------ */
 
-interface CheckpointMeta {
+interface CheckpointInfo {
   id: string;
   title: string;
-  guideQuestion: string;
-  /** 该关卡通过后解锁的编辑区间（1-based 闭区间，与 tasks JSON 的 unlock.editorRegion 一致） */
-  unlockRegion: readonly [number, number];
+  guide_question: string;
+  unlock: {
+    editorRegion: [number, number];
+    hints?: string[];
+  };
+  kind?: 'ai' | 'code';
+  gates: Array<{ type: string; weight: number }>;
+  pass_threshold: number;
 }
 
-const TASK_META: {
+interface TaskInfo {
   id: string;
   title: string;
-  description: string;
-  checkpoints: CheckpointMeta[];
-} = {
-  id: 'fib_L2',
-  title: '斐波那契数列（递归）',
-  description: '实现 int fib(int n)：先想清递归终止条件，再写出完整递归函数并通过隐藏测试。',
-  checkpoints: [
-    {
-      id: 'cp1',
-      title: '递归边界条件',
-      guideQuestion: '斐波那契递归的终止条件是什么？n 为 0 和 1 时分别应返回什么？',
-      unlockRegion: [5, 15],
-    },
-    {
-      id: 'cp2',
-      title: '递归实现与隐藏测试',
-      guideQuestion: '写出完整的 fib 递归函数，并跑通隐藏测试',
-      unlockRegion: [16, 30],
-    },
-  ],
-};
-
-/**
- * 起始模板（30 行，与 fib_L2.json 的解锁区间对齐）：
- *  - 1-4 行：永远锁定（头文件与说明）
- *  - 5-15 行：cp1 通过后解锁 —— 学生实现 int fib(int n)
- *  - 16-30 行：cp2 通过后解锁 —— main 已在模板中（隐藏测试直接编译运行）
- * 作为 baseline 随验证请求提交，服务端据此做逐字符硬锁校验（todo 12）。
- */
-const INITIAL_CODE = `#include <stdio.h>
-
-/* ===== 关卡 1 · 递归边界条件 ===== */
-/* cp1 通过后解锁第 5-15 行：实现 int fib(int n) */
-int fib(int n) {
-    /* 递归定义：fib(0)=0, fib(1)=1 */
-    /* TODO: 在此实现 n<=1 的终止条件与递归调用 */
-    return 0;
+  intro?: string;
+  description?: string;
+  checkpointMode: 'sequential' | 'free';
+  checkpoints: CheckpointInfo[];
 }
 
-/* ===== 关卡 2 · 递归实现与隐藏测试 ===== */
-/* cp2 通过后解锁第 16-30 行：main 已就绪，隐藏测试直接运行 */
-
-int main() {
-    int n;
-    scanf("%d", &n);
-    printf("%d\\n", fib(n));
-    return 0;
+interface UnlockState {
+  checkpointId: string;
+  unlocked: boolean;
+  passed: boolean;
 }
 
-/* ===== 扩展区（cp2 通过后解锁） ===== */
-/* 可在此添加更多测试用例或优化实现 */
-
-`;
-
-/** 永远锁定的头部行（头文件与关卡说明，不归属任何 unlock 区间） */
-const HEADER_LOCKED_REGION = { startLineNumber: 1, endLineNumber: 4 };
-
-/* ------------------------------------------------------------------ */
-/* 类型                                                               */
-/* ------------------------------------------------------------------ */
+interface CheckpointWorkspaceProps {
+  task?: TaskInfo;
+  progress?: Record<string, { passed: boolean; attempts: number }>;
+  unlockStates?: UnlockState[];
+  checkpointMode?: 'sequential' | 'free';
+  fullUnlock?: boolean;
+}
 
 interface VerifyResponse {
   passed: boolean;
@@ -139,16 +100,82 @@ interface UnlockFlash {
 }
 
 /* ------------------------------------------------------------------ */
-/* 组件                                                               */
+/* Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function CheckpointWorkspace() {
+/** Header region that is always locked (lines 1-4: includes and comments) */
+const HEADER_LOCKED_REGION = { startLineNumber: 1, endLineNumber: 4 } as const;
+
+/* ------------------------------------------------------------------ */
+/* Component                                                          */
+/* ------------------------------------------------------------------ */
+
+export default function CheckpointWorkspace({
+  task,
+  progress,
+  unlockStates,
+  checkpointMode = 'sequential',
+  fullUnlock = false,
+}: CheckpointWorkspaceProps) {
   const { user, token } = useAuth();
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'ADMIN' || user?.role === 'TA';
 
-  const [code, setCode] = useState(INITIAL_CODE);
+  // Use fullUnlock from server (teacher view) or compute from role
+  const effectiveFullUnlock = fullUnlock || isTeacher;
+
+  // Initial code - in a real app this would come from the task's initialCode or be fetched
+  // For now, we keep a default that matches fib_L2 structure
+  const [code, setCode] = useState(`#include <stdio.h>
+
+/* ===== 关卡 1 · 递归边界条件 ===== */
+/* cp1 通过后解锁第 5-15 行：实现 int fib(int n) */
+int fib(int n) {
+    /* 递归定义：fib(0)=0, fib(1)=1 */
+    /* TODO: 在此实现 n<=1 的终止条件与递归调用 */
+    return 0;
+}
+
+/* ===== 关卡 2 · 递归实现与隐藏测试 ===== */
+/* cp2 通过后解锁第 16-30 行：main 已就绪，隐藏测试直接运行 */
+
+int main() {
+    int n;
+    scanf("%d", &n);
+    printf("%d\\n", fib(n));
+    return 0;
+}
+
+/* ===== 扩展区（cp2 通过后解锁） ===== */
+/* 可在此添加更多测试用例或优化实现 */
+
+`);
+
+  /** Baseline for strict lock check (initial template) */
+  const BASELINE_CODE = code;
+
   /** 已通过关卡集合（前端只读解锁 UI 的依据；判题权威在服务端） */
-  const [passed, setPassed] = useState<Record<string, boolean>>({});
+  const [passed, setPassed] = useState<Record<string, boolean>>(() => {
+    // Initialize from server progress
+    if (progress) {
+      const initial: Record<string, boolean> = {};
+      for (const [cpId, cpProgress] of Object.entries(progress)) {
+        if (cpProgress.passed) initial[cpId] = true;
+      }
+      return initial;
+    }
+    return {};
+  });
+
+  // 同步服务端进度（task 异步加载后）
+  useEffect(() => {
+    if (!progress) return;
+    const next: Record<string, boolean> = {};
+    for (const [cpId, cpProgress] of Object.entries(progress)) {
+      if (cpProgress.passed) next[cpId] = true;
+    }
+    setPassed(next);
+  }, [progress]);
+
   /** Luna 对话历史（气泡展示用） */
   const [messages, setMessages] = useState<LunaMessage[]>([]);
   /** 当前关卡的学生回答上下文（验证时拼接为 studentAnswer，过关后清空） */
@@ -169,30 +196,49 @@ export default function CheckpointWorkspace() {
 
   /* ---- 派生状态 ---- */
 
-  const currentIndex = useMemo(
-    () => TASK_META.checkpoints.findIndex((cp) => !passed[cp.id]),
-    [passed]
-  );
-  const currentCheckpoint = currentIndex >= 0 ? TASK_META.checkpoints[currentIndex] : null;
+  const checkpoints = useMemo(() => task?.checkpoints ?? [], [task]);
+  const taskTitle = task?.title ?? '未知任务';
+
+  const currentIndex = useMemo(() => {
+    if (!checkpoints.length) return -1;
+    // In sequential mode, find first unlocked but not passed checkpoint
+    if (checkpointMode === 'sequential') {
+      return checkpoints.findIndex((cp) => {
+        const unlockState = unlockStates?.find((us) => us.checkpointId === cp.id);
+        const isUnlocked = unlockState?.unlocked ?? false;
+        const isPassed = passed[cp.id] ?? false;
+        return isUnlocked && !isPassed;
+      });
+    }
+    // In free mode, find first not passed checkpoint (all are unlocked)
+    return checkpoints.findIndex((cp) => !passed[cp.id]);
+  }, [checkpoints, checkpointMode, passed, unlockStates]);
+
+  const currentCheckpoint = currentIndex >= 0 ? checkpoints[currentIndex] : null;
   const allPassed = currentIndex < 0;
 
   /**
-   * 未解锁区间 = 永久锁定头部 + 所有未通过关卡的区间（通过后 Monaco 装饰自动消失）。
-   * 教师/TA/ADMIN 视角：所有区域均不锁定（编辑全部可编辑）。
+   * 未解锁区间 = 永久锁定头部 + 未解锁关卡的区间。
+   * 教师/TA/ADMIN 或 fullUnlock：仅头部锁定。
+   * sequential：仅当前关卡及其之前已通过的关卡可编辑，未来关卡锁定。
+   * free：所有关卡均可编辑（仅头部锁定）。
    */
   const lockedRegions = useMemo(() => {
-    if (isTeacher) return [HEADER_LOCKED_REGION];
+    if (effectiveFullUnlock) return [HEADER_LOCKED_REGION];
+    if (checkpointMode === 'free') return [HEADER_LOCKED_REGION];
+    // sequential: 找到首个未通过关卡的下标，>该下标的关卡锁定
+    const firstNotPassedIdx = checkpoints.findIndex((cp) => !passed[cp.id]);
+    if (firstNotPassedIdx === -1) return [HEADER_LOCKED_REGION]; // 全部通过
     const regions: { startLineNumber: number; endLineNumber: number }[] = [HEADER_LOCKED_REGION];
-    for (const cp of TASK_META.checkpoints) {
-      if (!passed[cp.id]) {
-        regions.push({
-          startLineNumber: cp.unlockRegion[0],
-          endLineNumber: cp.unlockRegion[1],
-        });
-      }
+    for (let i = firstNotPassedIdx + 1; i < checkpoints.length; i++) {
+      const cp = checkpoints[i];
+      regions.push({
+        startLineNumber: cp.unlock.editorRegion[0],
+        endLineNumber: cp.unlock.editorRegion[1],
+      });
     }
     return regions;
-  }, [passed, isTeacher]);
+  }, [passed, effectiveFullUnlock, checkpoints, checkpointMode]);
 
   /* ---- 消息工具 ---- */
 
@@ -232,14 +278,15 @@ export default function CheckpointWorkspace() {
   /* ---- 初始欢迎 + 引导问题 ---- */
 
   useEffect(() => {
-    const roleHint = isTeacher
+    if (!task) return;
+    const roleHint = effectiveFullUnlock
       ? '\n\n📖 教师视角：所有编辑区域均已解锁，可以直接查看和修改代码。'
       : '';
     addAssistantMessage(
-      `你好！我是 Luna，你的 C 语言学习助教。\n\n任务：${TASK_META.title}\n\n${currentCheckpoint?.guideQuestion ?? '全部关卡已通过，可以提交作业。'}${roleHint}`
+      `你好！我是 Luna，你的 C 语言学习助教。\n\n任务：${taskTitle}\n\n${currentCheckpoint?.guide_question ?? '全部关卡已通过，可以提交作业。'}${roleHint}`
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [task, taskTitle, currentCheckpoint, effectiveFullUnlock, addAssistantMessage]);
 
   /* ---- 解锁动画 ---- */
 
@@ -254,7 +301,7 @@ export default function CheckpointWorkspace() {
   /* ---- 验证 ---- */
 
   const handleVerify = useCallback(async () => {
-    if (!currentCheckpoint || isLoading) return;
+    if (!currentCheckpoint || !task || isLoading) return;
 
     setIsLoading(true);
     setLastResult(null);
@@ -266,11 +313,11 @@ export default function CheckpointWorkspace() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          taskId: TASK_META.id,
+          taskId: task.id,
           checkpointId: currentCheckpoint.id,
           code,
           studentAnswer: chatContextRef.current.join('\n'),
-          baseline: INITIAL_CODE, // 严格硬锁：锁定行必须与模板逐字符一致
+          baseline: BASELINE_CODE,
         }),
       });
 
@@ -283,7 +330,6 @@ export default function CheckpointWorkspace() {
       }
 
       if (res.status === 403 && data.tampered) {
-        // 后端硬锁拒收（前端回滚被 F12 绕过时兜底）
         pushToast(
           'error',
           '越权编辑被拒收',
@@ -311,7 +357,6 @@ export default function CheckpointWorkspace() {
       }
 
       if (data.passed) {
-        // 过关：更新状态、解锁下一编辑区、展示 AI 反馈
         const passedCp = currentCheckpoint;
         setPassed((prev) => ({ ...prev, [passedCp.id]: true }));
         chatContextRef.current = [];
@@ -321,7 +366,6 @@ export default function CheckpointWorkspace() {
           at: new Date().toLocaleTimeString('zh-CN'),
         });
 
-        // 如果之前有 escalated，过关后清除
         if (hasEscalated) setHasEscalated(false);
 
         const gateReplies = (data.perGate ?? [])
@@ -330,23 +374,21 @@ export default function CheckpointWorkspace() {
         const summary = `✅ 通过「${passedCp.title}」${data.score !== undefined ? `（得分 ${data.score.toFixed(2)}）` : ''}\n${data.reason ?? ''}`;
         addAssistantMessage([summary, ...gateReplies].join('\n'));
 
-        const next = TASK_META.checkpoints[currentIndex + 1];
-        // 解锁动画打在本次通过的关卡区间上（它刚刚变为可编辑）
-        flashUnlock(passedCp.unlockRegion);
+        const next = checkpoints[currentIndex + 1];
+        flashUnlock(passedCp.unlock.editorRegion);
         if (next) {
           addAssistantMessage(
-            `🔓 第 ${passedCp.unlockRegion[0]}-${passedCp.unlockRegion[1]} 行已解锁！\n下一步关卡：${next.title}\n\n引导问题：${next.guideQuestion}`
+            `🔓 第 ${passedCp.unlock.editorRegion[0]}-${passedCp.unlock.editorRegion[1]} 行已解锁！\n下一步关卡：${next.title}\n\n引导问题：${next.guide_question}`
           );
           pushToast(
             'success',
             `通过「${passedCp.title}」`,
-            `第 ${passedCp.unlockRegion[0]}-${passedCp.unlockRegion[1]} 行已解锁`
+            `第 ${passedCp.unlock.editorRegion[0]}-${passedCp.unlock.editorRegion[1]} 行已解锁`
           );
         } else {
           pushToast('success', '全部关卡通过！', '可以提交作业了');
         }
       } else if (data.escalated) {
-        // AI 置信度不足，已提交教师复核
         setHasEscalated(true);
         const gateReplies = (data.perGate ?? [])
           .filter((g) => g.reply)
@@ -360,7 +402,6 @@ export default function CheckpointWorkspace() {
         addAssistantMessage(parts.join('\n'));
         pushToast('warning', '等待教师放行', 'AI 置信度不足，已提交教师复核');
       } else {
-        // 未过关：展示 AI 反馈/提示（testHint 只描述失败性质，绝不外泄期望值）
         const gateReplies = (data.perGate ?? [])
           .filter((g) => g.reply)
           .map((g) => g.reply as string);
@@ -388,6 +429,9 @@ export default function CheckpointWorkspace() {
     isLoading,
     token,
     hasEscalated,
+    task,
+    checkpoints,
+    BASELINE_CODE,
     addAssistantMessage,
     flashUnlock,
     pushToast,
@@ -398,7 +442,6 @@ export default function CheckpointWorkspace() {
   const handleLunaSend = useCallback(
     (content: string) => {
       addUserMessage(content);
-      // 轻量即时反馈（不判题，判题由服务端负责）
       window.setTimeout(() => {
         addAssistantMessage(
           '已记录你的回答。想清楚后点击「请求验证」让 Luna 与隐藏测试一起检查。Luna 只问不给～'
@@ -450,8 +493,8 @@ export default function CheckpointWorkspace() {
         {/* ---- Monaco 工作区 ---- */}
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-5 py-3">
-            <CardTitle className="text-base font-semibold">{TASK_META.title}</CardTitle>
-            {isTeacher && (
+            <CardTitle className="text-base font-semibold">{taskTitle}</CardTitle>
+            {effectiveFullUnlock && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400">
                 <LockOpen className="size-3" aria-hidden="true" />
                 教师视角 · 全区域可编辑
@@ -475,7 +518,7 @@ export default function CheckpointWorkspace() {
               value={code}
               lockedRegions={lockedRegions}
               onChange={setCode}
-              isTeacherView={isTeacher}
+              isTeacherView={effectiveFullUnlock}
               onLockViolation={handleLockViolation}
             />
           </CardContent>
@@ -489,8 +532,10 @@ export default function CheckpointWorkspace() {
           <CardContent className="space-y-4 px-5 py-4">
             {/* 关卡进度条 */}
             <div className="flex flex-wrap items-center gap-2">
-              {TASK_META.checkpoints.map((cp, idx) => {
+              {checkpoints.map((cp, idx) => {
                 const isPassed = !!passed[cp.id];
+                const unlockState = unlockStates?.find((us) => us.checkpointId === cp.id);
+                const isUnlocked = unlockState?.unlocked ?? false;
                 const isCurrent = cp.id === currentCheckpoint?.id;
                 return (
                   <div
@@ -500,14 +545,28 @@ export default function CheckpointWorkspace() {
                         ? 'border-green-500/40 bg-green-500/8 text-green-600 dark:text-green-400'
                         : isCurrent
                           ? 'border-primary/40 bg-primary/5 text-foreground ring-1 ring-primary/20'
-                          : 'border-border/60 bg-muted/40 text-muted-foreground'
+                          : isUnlocked
+                            ? 'border-border/60 bg-muted/40 text-muted-foreground'
+                            : 'border-border/30 bg-muted/20 text-muted-foreground/50'
                     }`}
-                    title={isPassed ? '已通过' : isCurrent ? '当前关卡' : '未解锁'}
+                    title={
+                      isPassed
+                        ? '已通过'
+                        : isCurrent
+                          ? '当前关卡'
+                          : isUnlocked
+                            ? '可挑战'
+                            : '未解锁'
+                    }
                   >
                     {isPassed ? (
                       <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
                     ) : isCurrent ? (
                       <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                        {idx + 1}
+                      </span>
+                    ) : isUnlocked ? (
+                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
                         {idx + 1}
                       </span>
                     ) : (
@@ -516,7 +575,7 @@ export default function CheckpointWorkspace() {
                     <span className="max-w-[120px] truncate font-medium">{cp.title}</span>
                     {isPassed && (
                       <span className="whitespace-nowrap text-xs opacity-60">
-                        解锁 {formatRegion(cp.unlockRegion)}
+                        解锁 {formatRegion(cp.unlock.editorRegion)}
                       </span>
                     )}
                   </div>
@@ -534,7 +593,7 @@ export default function CheckpointWorkspace() {
                 className="max-h-24 min-h-[48px] w-full overflow-y-auto rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground break-words"
                 aria-label="当前引导问题"
               >
-                {currentCheckpoint?.guideQuestion ?? '全部关卡已通过，可以提交作业。'}
+                {currentCheckpoint?.guide_question ?? '全部关卡已通过，可以提交作业。'}
               </div>
             </div>
 
@@ -569,14 +628,14 @@ export default function CheckpointWorkspace() {
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 onClick={handleVerify}
-                disabled={isLoading || !currentCheckpoint || isTeacher}
+                disabled={isLoading || !currentCheckpoint || effectiveFullUnlock}
                 className="min-w-32 rounded-lg"
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="size-4 animate-spin" aria-hidden="true" /> 验证中…
                   </>
-                ) : isTeacher ? (
+                ) : effectiveFullUnlock ? (
                   '教师无需验证'
                 ) : (
                   '请求验证'
@@ -585,17 +644,17 @@ export default function CheckpointWorkspace() {
               <Button
                 variant="outline"
                 onClick={handleSubmit}
-                disabled={!allPassed || submitted || isTeacher}
+                disabled={!allPassed || submitted || effectiveFullUnlock}
                 className="min-w-32 rounded-lg"
               >
                 {submitted ? '已提交 ✓' : '提交作业 (Hand in)'}
               </Button>
-              {!allPassed && !isTeacher && (
+              {!allPassed && !effectiveFullUnlock && (
                 <p className="text-xs text-muted-foreground">
                   {currentCheckpoint ? `通过「${currentCheckpoint.title}」后解锁下一区域` : ''}
                 </p>
               )}
-              {isTeacher && (
+              {effectiveFullUnlock && (
                 <p className="text-xs text-muted-foreground">教师视角下验证/提交由管理后台处理</p>
               )}
             </div>

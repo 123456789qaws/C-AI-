@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import type * as monaco from 'monaco-editor';
 import { useTheme } from '@/components/theme/ThemeProvider';
 
@@ -42,27 +42,22 @@ export default function MonacoWorkspace({
   const isUpdatingRef = useRef(false);
   const lastValueRef = useRef(value);
 
-  // Convert lockedRegions to monaco Range array for quick overlap checks
-  const lockedRanges = useMemo(() => {
-    return lockedRegions.map((region) => ({
-      startLineNumber: region.startLineNumber,
-      startColumn: 1,
-      endLineNumber: region.endLineNumber,
-      endColumn: 1073741824, // Max column (effectively end of line)
-    }));
-  }, [lockedRegions]);
+  // Use a ref to always read the latest lockedRegions in event handlers
+  const lockedRegionsRef = useRef(lockedRegions);
+  lockedRegionsRef.current = lockedRegions;
 
-  // Check if a range overlaps with any locked region
+  // Check if a range overlaps with any locked region (reads from ref for latest)
   const overlapsLockedRegion = useCallback(
     (range: monaco.Range) => {
-      return lockedRanges.some((locked) => {
+      const currentRegions = lockedRegionsRef.current;
+      return currentRegions.some((locked) => {
         return !(
           range.endLineNumber < locked.startLineNumber ||
           range.startLineNumber > locked.endLineNumber
         );
       });
     },
-    [lockedRanges]
+    [] // No dependencies - reads from ref
   );
 
   // Apply locked region decorations
@@ -186,7 +181,7 @@ export default function MonacoWorkspace({
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [applyDecorations, onChange, overlapsLockedRegion, isTeacherView, onLockViolation, theme]
+    [applyDecorations, onChange, isTeacherView, onLockViolation, theme]
   );
 
   // Update decorations when lockedRegions change

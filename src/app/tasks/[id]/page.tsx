@@ -12,11 +12,42 @@ import { ArrowLeft } from 'lucide-react';
  * Types
  * ============================================================ */
 
+interface CheckpointInfo {
+  id: string;
+  title: string;
+  guide_question: string;
+  unlock: {
+    editorRegion: [number, number];
+    hints?: string[];
+  };
+  kind?: 'ai' | 'code';
+  gates: Array<{ type: string; weight: number }>;
+  pass_threshold: number;
+}
+
 interface TaskInfo {
   id: string;
   title: string;
   intro?: string;
-  checkpointMode?: string;
+  description?: string;
+  checkpointMode: 'sequential' | 'free';
+  checkpoints: CheckpointInfo[];
+}
+
+interface UnlockState {
+  checkpointId: string;
+  unlocked: boolean;
+  passed: boolean;
+}
+
+interface TaskApiResponse {
+  task: TaskInfo;
+  role: string;
+  fullUnlock: boolean;
+  checkpointMode: 'sequential' | 'free';
+  progress: Record<string, { passed: boolean; attempts: number }>;
+  unlockStates: UnlockState[];
+  assignments: Array<{ classId: string; deadline: string | null }>;
 }
 
 /* ============================================================
@@ -40,7 +71,7 @@ export default function StudentTaskPage() {
   const taskId = params.id as string;
   const classId = searchParams.get('classId');
 
-  const [task, setTask] = useState<TaskInfo | null>(null);
+  const [taskData, setTaskData] = useState<TaskApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -59,13 +90,13 @@ export default function StudentTaskPage() {
         });
         if (res.ok) {
           const data = await res.json();
-          setTask(data.task);
+          setTaskData(data);
         } else {
           // Fallback: task might not have API yet, use basic info
-          setTask({ id: taskId, title: taskId });
+          setTaskData(null);
         }
       } catch {
-        setTask({ id: taskId, title: taskId });
+        setTaskData(null);
       } finally {
         setLoading(false);
       }
@@ -98,16 +129,24 @@ export default function StudentTaskPage() {
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-sm font-semibold text-foreground truncate">
-              {task?.title ?? taskId}
+              {taskData?.task.title ?? taskId}
             </h1>
-            {task?.intro && <p className="text-xs text-muted-foreground truncate">{task.intro}</p>}
+            {taskData?.task.intro && (
+              <p className="text-xs text-muted-foreground truncate">{taskData.task.intro}</p>
+            )}
           </div>
           {user && <span className="text-xs text-muted-foreground">{user.name}</span>}
         </div>
 
         {/* IDE workspace */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <CheckpointWorkspace />
+          <CheckpointWorkspace
+            task={taskData?.task}
+            progress={taskData?.progress}
+            unlockStates={taskData?.unlockStates}
+            checkpointMode={taskData?.checkpointMode ?? 'sequential'}
+            fullUnlock={taskData?.fullUnlock ?? false}
+          />
         </div>
       </div>
     </AuthGuard>
