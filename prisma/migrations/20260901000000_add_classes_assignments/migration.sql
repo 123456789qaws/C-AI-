@@ -1,27 +1,10 @@
--- CreateEnum
-CREATE TYPE "Role" AS ENUM ('STUDENT', 'TEACHER', 'TA', 'ADMIN');
+-- Add Class, ClassEnrollment, TaskAssignment models and ADMIN role
+-- Incremental from 20260831120000_add_user_password_hash
 
--- CreateTable
-CREATE TABLE "User" (
-    "id" TEXT NOT NULL,
-    "role" "Role" NOT NULL,
-    "name" TEXT NOT NULL,
-    "passwordHash" TEXT,
+-- AlterEnum: add ADMIN to existing Role enum (created in init with STUDENT, TEACHER, TA)
+ALTER TYPE "Role" ADD VALUE 'ADMIN';
 
-    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "Task" (
-    "id" TEXT NOT NULL,
-    "title" TEXT NOT NULL,
-    "checkpoints" JSONB NOT NULL,
-    "hiddenTests" JSONB NOT NULL,
-
-    CONSTRAINT "Task_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
+-- CreateTable Class
 CREATE TABLE "Class" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -32,7 +15,7 @@ CREATE TABLE "Class" (
     CONSTRAINT "Class_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
+-- CreateTable ClassEnrollment
 CREATE TABLE "ClassEnrollment" (
     "id" TEXT NOT NULL,
     "classId" TEXT NOT NULL,
@@ -42,7 +25,7 @@ CREATE TABLE "ClassEnrollment" (
     CONSTRAINT "ClassEnrollment_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
+-- CreateTable TaskAssignment
 CREATE TABLE "TaskAssignment" (
     "id" TEXT NOT NULL,
     "taskId" TEXT NOT NULL,
@@ -52,41 +35,6 @@ CREATE TABLE "TaskAssignment" (
     "assignedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "TaskAssignment_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "AiInteractionLog" (
-    "id" TEXT NOT NULL,
-    "studentId" TEXT NOT NULL,
-    "taskId" TEXT NOT NULL,
-    "checkpointId" TEXT NOT NULL,
-    "ts" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "role" TEXT NOT NULL,
-    "promptText" TEXT,
-    "aiReply" TEXT,
-    "codeBefore" TEXT,
-    "codeAfter" TEXT,
-    "codeDiff" TEXT,
-    "gateResult" TEXT NOT NULL,
-    "gateType" TEXT NOT NULL,
-    "model" TEXT NOT NULL,
-    "tokens" INTEGER,
-    "confidence" DOUBLE PRECISION,
-    "sessionId" TEXT NOT NULL,
-
-    CONSTRAINT "AiInteractionLog_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "CheckpointProgress" (
-    "studentId" TEXT NOT NULL,
-    "taskId" TEXT NOT NULL,
-    "checkpointId" TEXT NOT NULL,
-    "passed" BOOLEAN NOT NULL,
-    "attempts" INTEGER NOT NULL DEFAULT 0,
-    "unlockedAt" TIMESTAMP(3),
-
-    CONSTRAINT "CheckpointProgress_pkey" PRIMARY KEY ("studentId","taskId","checkpointId")
 );
 
 -- CreateIndex
@@ -100,9 +48,6 @@ CREATE INDEX "TaskAssignment_classId_idx" ON "TaskAssignment"("classId");
 
 -- CreateIndex
 CREATE INDEX "TaskAssignment_taskId_idx" ON "TaskAssignment"("taskId");
-
--- CreateIndex
-CREATE INDEX "AiInteractionLog_studentId_taskId_ts_idx" ON "AiInteractionLog"("studentId", "taskId", "ts");
 
 -- AddForeignKey
 ALTER TABLE "Class" ADD CONSTRAINT "Class_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
