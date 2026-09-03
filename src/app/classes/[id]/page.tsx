@@ -142,6 +142,8 @@ export default function ClassDetailPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [assignLoading, setAssignLoading] = useState(false);
+  const [deletingAssignId, setDeletingAssignId] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
 
   // Student data
   const [studentAssignments, setStudentAssignments] = useState<StudentAssignment[]>([]);
@@ -282,6 +284,35 @@ export default function ClassDetailPage() {
     }
   };
 
+  // Delete assignment handler (tasks tab only — unassign from this class)
+  const handleDeleteAssignment = async (a: Assignment) => {
+    const label = a.task?.title ?? a.taskId;
+    if (!confirm(`确定删除任务 "${label}" ？该操作不可恢复`)) return;
+    setDeletingAssignId(a.id);
+    setAssignError(null);
+    // Optimistic removal; rollback via refetch on failure
+    setAssignments((prev) => prev.filter((x) => x.id !== a.id));
+    try {
+      const res = await fetch('/api/assignments', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ id: a.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAssignError(err.error ?? `删除失败 (${res.status})`);
+        fetchAssignments();
+      } else {
+        fetchAssignments();
+      }
+    } catch {
+      setAssignError('网络错误，请重试');
+      fetchAssignments();
+    } finally {
+      setDeletingAssignId(null);
+    }
+  };
+
   const handleDeleteClass = async () => {
     if (!cls) return;
     if (!confirm(`确定删除班级 "${cls.name}" ？该操作不可恢复`)) return;
@@ -408,6 +439,11 @@ export default function ClassDetailPage() {
                   <CardTitle className="text-base">已布置任务 ({assignments.length})</CardTitle>
                 </CardHeader>
                 <CardContent>
+                  {assignError && (
+                    <p className="mb-2 text-sm text-black" role="alert">
+                      {assignError}
+                    </p>
+                  )}
                   {assignments.length === 0 ? (
                     <p className="text-sm text-[#666666]">尚未布置任务</p>
                   ) : (
@@ -442,6 +478,15 @@ export default function ClassDetailPage() {
                                   {cd.expired ? '已截止' : cd.text}
                                 </span>
                               )}
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label={`删除任务 ${a.task?.title ?? a.taskId}`}
+                                disabled={deletingAssignId === a.id}
+                                onClick={() => handleDeleteAssignment(a)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
                             </div>
                           </div>
                         );

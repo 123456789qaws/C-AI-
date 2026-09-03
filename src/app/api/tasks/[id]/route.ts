@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { requireUser } from '@/lib/auth/require';
+import { requireTeacher, requireUser } from '@/lib/auth/require';
 import { loadTask } from '@/lib/checkpoint/loader';
 import { SUBMITTED_MARKER } from '@/lib/submissions/marker';
 
@@ -107,4 +107,82 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     assignments,
     submitted,
   });
+}
+
+/**
+ * DELETE /api/tasks/[id] — 删除全局任务（作者本人或 ADMIN）
+ * Removes tasks/<id>.json + prisma mirror + related TaskAssignment rows.
+ * Does NOT delete student CheckpointProgress / logs (audit trail preserved).
+ */
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = requireTeacher(req);
+  if (!user)
+    return NextResponse.json({ error: 'Forbidden: TEACHER or ADMIN required' }, { status: 403 });
+
+  const { id } = await params;
+  const taskId = id.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(taskId)) {
+    return NextResponse.json({ error: 'Invalid task id' }, { status: 400 });
+  }
+
+  // Ownership: author or ADMIN. tasks/*.json is truth — authorId from file, DB mirror as fallback.
+  let authorId: string | null = null;
+  try {
+    const fileTask = await loadTask(taskId);
+    authorId = fileTask.authorId ?? null;
+  } catch {
+    try {
+      const row = await prisma.task.findUnique({
+        where: { id: taskId },
+        select: { authorId: true },
+      });
+      authorId = row?.authorId ?? null;
+    } catch {
+      authorId = null;
+    }
+  }
+  if (authorId === null) {
+    // Task exists nowhere — still 404 unless DB mirror says otherwise
+    try {
+      const row = await prisma.task.findUnique({ where: { id: taskId }, select: { id: true } });
+      if (!row) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    } catch {
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    }
+  }
+  const isAdmin = user.role === 'ADMIN';
+  if (!isAdmin && authorId !== null && authorId !== user.id) {
+    return NextResponse.json({ error: 'Forbidden: not the task author' }, { status: 403 });
+  }
+
+  try {
+    const { unlink } = await import('node:fs/promises');
+    const path = (await import('node:path')).default;
+    const taskPath = path.join(process.cwd(), 'tasks', `${taskId}.json`);
+    // Guard: resolved path must stay inside tasks/ (no traversal)
+    if (!path.resolve(taskPath).startsWith(path.resolve(process.cwd(), 'tasks'))) {
+      return NextResponse.json({ error: 'Invalid task id' }, { status: 400 });
+    }
+    try {
+      await unlink(taskPath);
+    } catch {
+      // File already gone — continue with DB cleanup
+    }
+
+    try {
+      await prisma.taskAssignment.deleteMany({ where: { taskId } });
+    } catch {
+      // best-effort
+    }
+    try {
+      await prisma.task.deleteMany({ where: { id: taskId } });
+    } catch {
+      // best-effort
+    }
+
+    return NextResponse.json({ ok: true, deleted: taskId });
+  } catch (err) {
+    console.error('[tasks DELETE] error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
 }
