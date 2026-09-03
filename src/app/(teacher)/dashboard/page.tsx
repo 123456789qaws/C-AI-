@@ -6,39 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /* ============================================================
- * 演示数据（DB 不可用时的 fallback）
+ * 看板统计口径（Bug3-stats）：
+ * 总学生数 = 当前教师所教班级 enrollments 按 studentId 去重，
+ * 在线人数 = 5 分钟窗口内有 AiInteractionLog 的去重 studentId，
+ * 权威值来自 /api/dashboard/stats；空数据展示暂无文案，绝无 MOCK 假数。
  * ============================================================ */
-
-const MOCK_HEAT_DATA = [
-  { taskId: 'task-1', taskName: 'Hello World', avgScore: 92, submissions: 45, passRate: 0.98 },
-  { taskId: 'task-2', taskName: '变量与类型', avgScore: 85, submissions: 42, passRate: 0.93 },
-  { taskId: 'task-3', taskName: '条件判断', avgScore: 78, submissions: 40, passRate: 0.85 },
-  { taskId: 'task-4', taskName: '循环结构', avgScore: 72, submissions: 38, passRate: 0.79 },
-  { taskId: 'task-5', taskName: '数组基础', avgScore: 68, submissions: 35, passRate: 0.71 },
-  { taskId: 'task-6', taskName: '函数定义', avgScore: 65, submissions: 33, passRate: 0.67 },
-  { taskId: 'task-7', taskName: '指针入门', avgScore: 58, submissions: 30, passRate: 0.57 },
-  { taskId: 'task-8', taskName: '结构体', avgScore: 55, submissions: 28, passRate: 0.54 },
-];
-
-const MOCK_TIMELINE = [
-  { time: '09:15', student: '张三', task: '指针入门', action: '提交代码', status: '通过' },
-  { time: '09:18', student: '李四', task: '循环结构', action: '提交代码', status: '失败' },
-  { time: '09:22', student: '王五', task: '数组基础', action: '提交代码', status: '通过' },
-  { time: '09:25', student: '赵六', task: '函数定义', action: '开始编码', status: '进行中' },
-  { time: '09:28', student: '钱七', task: '条件判断', action: '提交代码', status: '通过' },
-  { time: '09:30', student: '孙八', task: 'Hello World', action: '提交代码', status: '通过' },
-  { time: '09:33', student: '周九', task: '结构体', action: '开始编码', status: '进行中' },
-  { time: '09:35', student: '吴十', task: '变量与类型', action: '提交代码', status: '通过' },
-];
-
-// 保留演示数据仅供 ?mock=1 调试，默认不使用
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const MOCK_STATS = {
-  totalStudents: 45,
-  activeNow: 12,
-  avgScore: 71.6,
-  totalSubmissions: 291,
-};
 
 /* ============================================================
  * 热力图行（从 /api/logs 聚合得出）
@@ -167,7 +139,16 @@ export default function TeacherDashboard() {
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [logsSource, setLogsSource] = useState<'api' | 'mock'>('mock');
+  /* —— 看板统计（权威值来自 /api/dashboard/stats，班级去重口径） —— */
+  interface DashboardStats {
+    totalStudents: number;
+    activeNow: number;
+    avgScore: number;
+    totalSubmissions: number;
+    classCount: number;
+    onlineWindowSec: number;
+  }
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [overriding, setOverriding] = useState<string | null>(null);
   const [overridden, setOverridden] = useState<Set<string>>(new Set());
   const [csvLoading, setCsvLoading] = useState(false);
@@ -248,15 +229,45 @@ export default function TeacherDashboard() {
       .then((data) => {
         if (Array.isArray(data.rows)) {
           setLogs(data.rows);
-          setLogsSource('api');
         } else {
           setLogs([]);
-          setLogsSource('api');
         }
       })
       .catch(() => {
         setLogs([]);
-        setLogsSource('api');
+      });
+  }, [role]);
+
+  /* —— Step 2b: 拉取看板统计（班级去重口径，权威） —— */
+  useEffect(() => {
+    if (!role || role === 'STUDENT' || role === 'UNAUTHENTICATED') return;
+
+    fetch('/api/dashboard/stats', { headers: authHeaders() })
+      .then((r) => {
+        if (!r.ok) throw new Error('stats fetch failed');
+        return r.json();
+      })
+      .then((data) => {
+        if (
+          typeof data.totalStudents === 'number' &&
+          typeof data.activeNow === 'number' &&
+          typeof data.avgScore === 'number' &&
+          typeof data.totalSubmissions === 'number'
+        ) {
+          setDashboardStats({
+            totalStudents: data.totalStudents,
+            activeNow: data.activeNow,
+            avgScore: data.avgScore,
+            totalSubmissions: data.totalSubmissions,
+            classCount: typeof data.classCount === 'number' ? data.classCount : 0,
+            onlineWindowSec: typeof data.onlineWindowSec === 'number' ? data.onlineWindowSec : 300,
+          });
+        } else {
+          setDashboardStats(null);
+        }
+      })
+      .catch(() => {
+        setDashboardStats(null);
       });
   }, [role]);
 
@@ -377,23 +388,31 @@ export default function TeacherDashboard() {
   const heatData = useMemo(() => {
     if (logs.length === 0) return [];
     const aggregated = aggregateHeat(logs);
-    const taskNames: Record<string, string> = {};
-    MOCK_HEAT_DATA.forEach((m) => {
-      taskNames[m.taskId] = m.taskName;
-    });
     return aggregated.map((h) => ({
       taskId: h.taskId,
-      taskName: taskNames[h.taskId] ?? h.taskId,
+      taskName: h.taskId,
       avgScore: 0,
       submissions: h.submissions,
       passRate: h.passRate,
     }));
   }, [logs]);
 
-  /* —— 统计卡片 —— */
+  /* —— 统计卡片 ——
+   * 权威值来自 /api/dashboard/stats（所教班级 enrollments 去重 + 5 分钟在线窗口）；
+   * stats 接口不可用时回退到日志聚合（学生数口径降级为日志去重，页面照常渲染空态）。
+   */
   const stats = useMemo(() => {
+    if (dashboardStats) return { ...dashboardStats, fromApi: true as const };
     if (logs.length === 0) {
-      return { totalStudents: 0, activeNow: 0, avgScore: 0, totalSubmissions: 0 };
+      return {
+        totalStudents: 0,
+        activeNow: 0,
+        avgScore: 0,
+        totalSubmissions: 0,
+        classCount: 0,
+        onlineWindowSec: 300,
+        fromApi: false as const,
+      };
     }
     const uniqueStudents = new Set(logs.map((r) => r.studentId));
     const passed = logs.filter((r) => r.gateResult === 'passed').length;
@@ -403,8 +422,11 @@ export default function TeacherDashboard() {
       activeNow: 0,
       avgScore: total > 0 ? Math.round((passed / total) * 100) : 0,
       totalSubmissions: total,
+      classCount: 0,
+      onlineWindowSec: 300,
+      fromApi: false as const,
     };
-  }, [logs]);
+  }, [logs, dashboardStats]);
 
   /* —— CSV 导出 —— */
   const handleExportCSV = useCallback(async () => {
@@ -601,14 +623,7 @@ export default function TeacherDashboard() {
           <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold text-black">教师看板</h1>
-              <p className="text-sm text-[#666666] mt-1">
-                实时监控学生学习进度与代码提交情况
-                {logsSource === 'mock' && (
-                  <span className="ml-2 inline-flex items-center rounded-none bg-black/10 px-2 py-0.5 text-xs font-medium text-black">
-                    演示数据
-                  </span>
-                )}
-              </p>
+              <p className="text-sm text-[#666666] mt-1">实时监控学生学习进度与代码提交情况</p>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={csvLoading}>
@@ -649,6 +664,11 @@ export default function TeacherDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold text-black">{stats.totalStudents}</div>
+                {stats.fromApi && (
+                  <div className="mt-1 text-xs text-[#999999]">
+                    {stats.classCount}个班级 · 去重统计
+                  </div>
+                )}
               </CardContent>
             </Card>
             <Card size="sm">
@@ -657,6 +677,13 @@ export default function TeacherDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold text-black">{stats.activeNow}</div>
+                <div className="mt-1 text-xs text-[#999999]">
+                  {stats.fromApi
+                    ? stats.activeNow > 0
+                      ? '近5分钟活跃'
+                      : '暂无在线数据 · 5分钟内无活动'
+                    : '暂无在线数据'}
+                </div>
               </CardContent>
             </Card>
             <Card size="sm">
@@ -951,31 +978,39 @@ export default function TeacherDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {heatData.map((item) => (
-                        <tr
-                          key={item.taskId}
-                          className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
-                        >
-                          <td className="px-4 py-3 font-medium text-black">{item.taskName}</td>
-                          <td className="px-4 py-3 text-[#999999]">{item.submissions}</td>
-                          <td className="px-4 py-3 text-black">
-                            {(item.passRate * 100).toFixed(1)}%
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <div
-                                className={`h-4 w-24 rounded-none border ${getHeatColor(item.passRate)}`}
-                                style={{ width: `${Math.max(item.passRate * 100, 4)}%` }}
-                                role="img"
-                                aria-label={`${item.taskName} 通过率 ${(item.passRate * 100).toFixed(1)}%`}
-                              />
-                              <span className="text-xs text-[#999999] w-16 text-right">
-                                {(item.passRate * 100).toFixed(0)}%
-                              </span>
-                            </div>
+                      {heatData.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-12 text-center text-sm text-[#666666]">
+                            暂无数据
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        heatData.map((item) => (
+                          <tr
+                            key={item.taskId}
+                            className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
+                          >
+                            <td className="px-4 py-3 font-medium text-black">{item.taskName}</td>
+                            <td className="px-4 py-3 text-[#999999]">{item.submissions}</td>
+                            <td className="px-4 py-3 text-black">
+                              {(item.passRate * 100).toFixed(1)}%
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className={`h-4 w-24 rounded-none border ${getHeatColor(item.passRate)}`}
+                                  style={{ width: `${Math.max(item.passRate * 100, 4)}%` }}
+                                  role="img"
+                                  aria-label={`${item.taskName} 通过率 ${(item.passRate * 100).toFixed(1)}%`}
+                                />
+                                <span className="text-xs text-[#999999] w-16 text-right">
+                                  {(item.passRate * 100).toFixed(0)}%
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1007,39 +1042,7 @@ export default function TeacherDashboard() {
             <Card>
               <CardContent className="p-0">
                 <div className="divide-y divide-border">
-                  {logsSource === 'mock' ? (
-                    /* 演示数据渲染 */
-                    MOCK_TIMELINE.map((item, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex-shrink-0 w-20 text-xs text-muted-foreground font-mono">
-                          {item.time}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 text-sm">
-                            <span className="font-medium text-foreground">{item.student}</span>
-                            <span className="text-muted-foreground">{item.action}</span>
-                            <span className="text-primary font-medium">{item.task}</span>
-                          </div>
-                        </div>
-                        <div className="flex-shrink-0">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              item.status === '通过'
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                : item.status === '失败'
-                                  ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                                  : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                            }`}
-                          >
-                            {item.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  ) : logs.length === 0 ? (
+                  {logs.length === 0 ? (
                     <div className="py-12 text-center text-sm text-muted-foreground">
                       暂无日志数据
                     </div>
