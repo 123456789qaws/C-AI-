@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AssignmentForm } from '@/components/class/AssignmentForm';
 import SubmissionReview from '@/components/class/SubmissionReview';
-import { ArrowLeft, Users, BookOpen, BarChart3, Clock, Trash2 } from 'lucide-react';
+import { ArrowLeft, Users, BookOpen, BarChart3, Clock, Trash2, ChevronDown } from 'lucide-react';
 
 /* ============================================================
  * Types
@@ -133,6 +133,15 @@ export default function ClassDetailPage() {
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabKey>('tasks');
+
+  // Bug4-taskpage: 任务管理展开审阅态（expand-in-place，无独立路由）
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  // 分数视图 → 任务管理按任务审阅跳转
+  const handleJumpToTask = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId);
+    setActiveTab('tasks');
+  }, []);
 
   // Class info
   const [cls, setCls] = useState<ClassInfo | null>(null);
@@ -290,6 +299,8 @@ export default function ClassDetailPage() {
     if (!confirm(`确定删除任务 "${label}" ？该操作不可恢复`)) return;
     setDeletingAssignId(a.id);
     setAssignError(null);
+    // Bug4-taskpage: 被删任务若正展开审阅，先收起
+    setSelectedTaskId((prev) => (prev === a.taskId ? null : prev));
     // Optimistic removal; rollback via refetch on failure
     setAssignments((prev) => prev.filter((x) => x.id !== a.id));
     try {
@@ -450,44 +461,97 @@ export default function ClassDetailPage() {
                     <div className="space-y-2">
                       {assignments.map((a) => {
                         const cd = a.deadline ? deadlineCountdown(a.deadline) : null;
+                        const expanded = selectedTaskId === a.taskId;
+                        const title = a.task?.title ?? a.taskId;
                         return (
                           <div
                             key={a.id}
-                            className="flex items-center justify-between rounded-none border border-[#dddddd]/50 px-3 py-2 min-w-0"
+                            className="rounded-none border border-[#dddddd]/50 min-w-0"
                           >
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-black truncate">
-                                {a.task?.title ?? a.taskId}
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              aria-expanded={expanded}
+                              aria-label={`${expanded ? '收起' : '展开审阅'}任务 ${title}`}
+                              onClick={() => setSelectedTaskId(expanded ? null : a.taskId)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  setSelectedTaskId(expanded ? null : a.taskId);
+                                }
+                              }}
+                              className={`flex items-center justify-between px-3 py-2 min-w-0 cursor-pointer ${
+                                expanded ? 'bg-[#f7f7f7]' : 'hover:bg-[#f7f7f7]'
+                              }`}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-black truncate">
+                                  {title}
+                                </div>
+                                <div className="text-xs text-[#666666]">
+                                  布置于 {new Date(a.assignedAt).toLocaleDateString('zh-CN')}
+                                  {a.teacher && <span className="ml-1">· {a.teacher.name}</span>}
+                                  <span className="ml-1">· 点击展开回应审阅</span>
+                                </div>
                               </div>
-                              <div className="text-xs text-[#666666]">
-                                布置于 {new Date(a.assignedAt).toLocaleDateString('zh-CN')}
-                                {a.teacher && <span className="ml-1">· {a.teacher.name}</span>}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              {cd && (
-                                <span
-                                  className={`text-xs font-medium ${
-                                    cd.expired
-                                      ? 'text-[#999999]'
-                                      : cd.urgent
-                                        ? 'text-black'
-                                        : 'text-black/60'
+                              <div className="flex items-center gap-2 shrink-0">
+                                {cd && (
+                                  <span
+                                    className={`text-xs font-medium ${
+                                      cd.expired
+                                        ? 'text-[#999999]'
+                                        : cd.urgent
+                                          ? 'text-black'
+                                          : 'text-black/60'
+                                    }`}
+                                  >
+                                    {cd.expired ? '已截止' : cd.text}
+                                  </span>
+                                )}
+                                <ChevronDown
+                                  className={`size-3.5 text-[#999999] transition-transform ${
+                                    expanded ? 'rotate-180' : ''
                                   }`}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  aria-label={`删除任务 ${title}`}
+                                  disabled={deletingAssignId === a.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteAssignment(a);
+                                  }}
                                 >
-                                  {cd.expired ? '已截止' : cd.text}
-                                </span>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                aria-label={`删除任务 ${a.task?.title ?? a.taskId}`}
-                                disabled={deletingAssignId === a.id}
-                                onClick={() => handleDeleteAssignment(a)}
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
                             </div>
+                            {expanded && (
+                              <div className="border-t border-[#dddddd]/50 px-3 py-3 space-y-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs text-[#999999]">
+                                    「{title}」的学生回应（提交明细 · 打回重做）
+                                  </p>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <Link
+                                      href={`/tasks/${a.taskId}?classId=${classId}`}
+                                      className="text-xs text-black underline decoration-dotted underline-offset-2 hover:text-black/70"
+                                    >
+                                      教师预览 →
+                                    </Link>
+                                    <Button
+                                      variant="outline"
+                                      size="xs"
+                                      onClick={() => setSelectedTaskId(null)}
+                                    >
+                                      收起
+                                    </Button>
+                                  </div>
+                                </div>
+                                <SubmissionReview classId={classId} taskId={a.taskId} />
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -611,10 +675,15 @@ export default function ClassDetailPage() {
           {activeTab === 'scores' && isTeacher && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">总得分概览与提交审阅</CardTitle>
+                <CardTitle className="text-base">总得分概览</CardTitle>
               </CardHeader>
-              <CardContent>
-                <SubmissionReview classId={classId} />
+              <CardContent className="space-y-3">
+                <SubmissionReview classId={classId} overviewOnly onJumpToTask={handleJumpToTask} />
+                <div>
+                  <Button variant="outline" size="xs" onClick={() => setActiveTab('tasks')}>
+                    前往任务管理审阅 →
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}

@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
  *   + 总得分概览（Bug3-scores）：每任务满分 100，submitted→100，
  *     否则按 passed/totalCheckpoints 比例四舍五入（API 下发 score，前端兜底同公式）；
  *     总分=sum，平均分=total/N（1 位小数，N=0 时 guard 为 —）。
+ *   + 按任务审阅（Bug4-taskpage）：taskId 锁定单任务明细（GET 带 taskId 窄化，
+ *     隐藏概览与筛选）；overviewOnly 只渲染总分概览（分数视图用，明细移至任务管理）。
  *
  * 数据源：GET /api/submissions?classId=&taskId=（班级作用域，教师须拥有班级）
  * 打回：DELETE /api/submissions { studentId, taskId, classId }，
@@ -47,9 +49,22 @@ function getToken(): string | null {
   return localStorage.getItem('luna-token');
 }
 
-export default function SubmissionReview({ classId }: { classId: string }) {
+export default function SubmissionReview({
+  classId,
+  taskId,
+  overviewOnly = false,
+  onJumpToTask,
+}: {
+  classId: string;
+  /** 锁定单任务审阅（任务管理展开态用）：GET 带 taskId 窄化，隐藏概览与筛选 */
+  taskId?: string;
+  /** 仅总分概览（分数视图用）：隐藏明细 drill-down */
+  overviewOnly?: boolean;
+  /** 概览表任务头点击跳转审阅（分数视图 → 任务管理） */
+  onJumpToTask?: (taskId: string) => void;
+}) {
   const [submissions, setSubmissions] = useState<StudentSubmission[]>([]);
-  const [taskFilter, setTaskFilter] = useState<string>('all');
+  const [taskFilter, setTaskFilter] = useState<string>(taskId ?? 'all');
   const [loading, setLoading] = useState(true);
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
@@ -63,7 +78,10 @@ export default function SubmissionReview({ classId }: { classId: string }) {
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/submissions?classId=${encodeURIComponent(classId)}`, {
+      const url =
+        `/api/submissions?classId=${encodeURIComponent(classId)}` +
+        (taskId ? `&taskId=${encodeURIComponent(taskId)}` : '');
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -78,11 +96,19 @@ export default function SubmissionReview({ classId }: { classId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [classId]);
+  }, [classId, taskId]);
 
   useEffect(() => {
     fetchSubmissions();
   }, [fetchSubmissions]);
+
+  // Bug4-taskpage: taskId 锁定态与外部同步（切换任务时重置筛选/展开态）
+  useEffect(() => {
+    if (taskId) {
+      setTaskFilter(taskId);
+      setExpandedCode(null);
+    }
+  }, [taskId]);
 
   const handleReject = async (studentId: string, studentName: string, task: TaskSubmission) => {
     if (
@@ -192,62 +218,77 @@ export default function SubmissionReview({ classId }: { classId: string }) {
         </div>
       )}
 
-      {/* Bug3-scores: 每学生总得分概览（单次 GET 聚合，无 N+1） */}
-      <div className="space-y-2">
-        <p className="text-xs text-[#999999]">
-          总得分概览（每任务满分 100 · 总分=各任务得分之和 · 平均分=总分/已布置）
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm" role="table" aria-label="学生总得分概览">
-            <thead>
-              <tr className="border-b border-[#dddddd]">
-                <th className="px-3 py-2 text-left font-medium text-[#999999]">学号</th>
-                <th className="px-3 py-2 text-left font-medium text-[#999999]">姓名</th>
-                <th className="px-3 py-2 text-center font-medium text-[#999999]">已布置</th>
-                <th className="px-3 py-2 text-center font-medium text-[#999999]">已提交</th>
-                <th className="px-3 py-2 text-center font-medium text-[#999999]">参与率</th>
-                {taskOptions.map((t) => (
-                  <th
-                    key={t.id}
-                    className="max-w-[140px] truncate px-3 py-2 text-center font-medium text-[#999999]"
-                    title={t.title}
-                  >
-                    {t.title}
-                  </th>
-                ))}
-                <th className="px-3 py-2 text-center font-medium text-[#999999]">总分</th>
-                <th className="px-3 py-2 text-center font-medium text-[#999999]">平均分</th>
-              </tr>
-            </thead>
-            <tbody>
-              {overviewRows.map((r) => (
-                <tr
-                  key={r.student.studentId}
-                  className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
-                >
-                  <td className="px-3 py-2 font-mono text-black">{r.student.studentId}</td>
-                  <td className="px-3 py-2 text-black">{r.student.studentName}</td>
-                  <td className="px-3 py-2 text-center text-black">{r.assigned}</td>
-                  <td className="px-3 py-2 text-center text-black">{r.submittedCount}</td>
-                  <td className="px-3 py-2 text-center text-black">{r.rateText}</td>
-                  {r.perTask.map((v, i) => (
-                    <td
-                      key={`${r.student.studentId}::${taskOptions[i]?.id ?? i}`}
-                      className="px-3 py-2 text-center text-black"
+      {/* Bug3-scores: 每学生总得分概览（单次 GET 聚合，无 N+1）—— taskId 锁定态隐藏 */}
+      {!taskId && (
+        <div className="space-y-2">
+          <p className="text-xs text-[#999999]">
+            总得分概览（每任务满分 100 · 总分=各任务得分之和 · 平均分=总分/已布置）
+            {overviewOnly && ' · 明细审阅请前往「任务管理」点击任务展开'}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" role="table" aria-label="学生总得分概览">
+              <thead>
+                <tr className="border-b border-[#dddddd]">
+                  <th className="px-3 py-2 text-left font-medium text-[#999999]">学号</th>
+                  <th className="px-3 py-2 text-left font-medium text-[#999999]">姓名</th>
+                  <th className="px-3 py-2 text-center font-medium text-[#999999]">已布置</th>
+                  <th className="px-3 py-2 text-center font-medium text-[#999999]">已提交</th>
+                  <th className="px-3 py-2 text-center font-medium text-[#999999]">参与率</th>
+                  {taskOptions.map((t) => (
+                    <th
+                      key={t.id}
+                      className="max-w-[140px] truncate px-3 py-2 text-center font-medium text-[#999999]"
+                      title={t.title}
                     >
-                      {v}
-                    </td>
+                      {onJumpToTask ? (
+                        <button
+                          type="button"
+                          onClick={() => onJumpToTask(t.id)}
+                          className="underline decoration-dotted underline-offset-2 hover:text-black"
+                          title={`前往任务管理审阅「${t.title}」`}
+                        >
+                          {t.title}
+                        </button>
+                      ) : (
+                        t.title
+                      )}
+                    </th>
                   ))}
-                  <td className="px-3 py-2 text-center font-semibold text-black">{r.total}</td>
-                  <td className="px-3 py-2 text-center text-black">{r.avgText}</td>
+                  <th className="px-3 py-2 text-center font-medium text-[#999999]">总分</th>
+                  <th className="px-3 py-2 text-center font-medium text-[#999999]">平均分</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {overviewRows.map((r) => (
+                  <tr
+                    key={r.student.studentId}
+                    className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
+                  >
+                    <td className="px-3 py-2 font-mono text-black">{r.student.studentId}</td>
+                    <td className="px-3 py-2 text-black">{r.student.studentName}</td>
+                    <td className="px-3 py-2 text-center text-black">{r.assigned}</td>
+                    <td className="px-3 py-2 text-center text-black">{r.submittedCount}</td>
+                    <td className="px-3 py-2 text-center text-black">{r.rateText}</td>
+                    {r.perTask.map((v, i) => (
+                      <td
+                        key={`${r.student.studentId}::${taskOptions[i]?.id ?? i}`}
+                        className="px-3 py-2 text-center text-black"
+                      >
+                        {v}
+                      </td>
+                    ))}
+                    <td className="px-3 py-2 text-center font-semibold text-black">{r.total}</td>
+                    <td className="px-3 py-2 text-center text-black">{r.avgText}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
-      {taskOptions.length > 1 && (
+      {/* Bug4-taskpage: taskId 锁定态隐藏筛选（已窄化到单任务）；概览态隐藏筛选 */}
+      {!taskId && !overviewOnly && taskOptions.length > 1 && (
         <div className="flex items-center gap-2">
           <label htmlFor="submission-task-filter" className="text-xs text-[#999999]">
             按任务筛选
@@ -268,96 +309,105 @@ export default function SubmissionReview({ classId }: { classId: string }) {
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm" role="table">
-          <thead>
-            <tr className="border-b border-[#dddddd]">
-              <th className="px-3 py-2 text-left font-medium text-[#999999]">学号</th>
-              <th className="px-3 py-2 text-left font-medium text-[#999999]">姓名</th>
-              <th className="px-3 py-2 text-left font-medium text-[#999999]">任务</th>
-              <th className="px-3 py-2 text-center font-medium text-[#999999]">进度</th>
-              <th className="px-3 py-2 text-center font-medium text-[#999999]">状态</th>
-              <th className="px-3 py-2 text-right font-medium text-[#999999]">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRows.map(({ student, task }) => {
-              const meta = STATUS_META[task.status];
-              const rowKey = `${student.studentId}::${task.taskId}`;
-              const codeKey = `${student.studentId}::${task.taskId}`;
-              return (
-                <tr key={rowKey} className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]">
-                  <td className="px-3 py-2 font-mono text-black">{student.studentId}</td>
-                  <td className="px-3 py-2 text-black">{student.studentName}</td>
-                  <td
-                    className="max-w-[180px] truncate px-3 py-2 text-black"
-                    title={task.taskTitle}
-                  >
-                    {task.taskTitle}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-[#666666]">
-                    {task.passed}/{task.totalCheckpoints} 关 · {task.attempts} 次尝试
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium ${meta.className}`}
+      {/* Bug4-taskpage: 概览态隐藏明细 drill-down（明细只在任务管理按任务审阅） */}
+      {!overviewOnly && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" role="table">
+            <thead>
+              <tr className="border-b border-[#dddddd]">
+                <th className="px-3 py-2 text-left font-medium text-[#999999]">学号</th>
+                <th className="px-3 py-2 text-left font-medium text-[#999999]">姓名</th>
+                <th className="px-3 py-2 text-left font-medium text-[#999999]">任务</th>
+                <th className="px-3 py-2 text-center font-medium text-[#999999]">进度</th>
+                <th className="px-3 py-2 text-center font-medium text-[#999999]">状态</th>
+                <th className="px-3 py-2 text-right font-medium text-[#999999]">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.map(({ student, task }) => {
+                const meta = STATUS_META[task.status];
+                const rowKey = `${student.studentId}::${task.taskId}`;
+                const codeKey = `${student.studentId}::${task.taskId}`;
+                return (
+                  <tr key={rowKey} className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]">
+                    <td className="px-3 py-2 font-mono text-black">{student.studentId}</td>
+                    <td className="px-3 py-2 text-black">{student.studentName}</td>
+                    <td
+                      className="max-w-[180px] truncate px-3 py-2 text-black"
+                      title={task.taskTitle}
                     >
-                      {task.status === 'submitted' ? (
-                        <CheckCircle2 className="size-3" />
-                      ) : task.status === 'in_progress' ? (
-                        <Clock className="size-3" />
-                      ) : (
-                        <CircleDashed className="size-3" />
-                      )}
-                      {meta.label}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center justify-end gap-1">
-                      {task.lastCode && (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => setExpandedCode(expandedCode === codeKey ? null : codeKey)}
-                          aria-label={`查看 ${student.studentName} 的代码快照`}
-                        >
-                          <Eye className="size-3 mr-1" />
-                          代码
-                        </Button>
-                      )}
-                      {(task.status !== 'not_started' || task.attempts > 0 || task.submitted) && (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          disabled={rejecting === rowKey}
-                          onClick={() => handleReject(student.studentId, student.studentName, task)}
-                          aria-label={`打回 ${student.studentName} 的 ${task.taskTitle}`}
-                        >
-                          <RotateCcw className="size-3 mr-1" />
-                          {rejecting === rowKey ? '打回中...' : '打回重做'}
-                        </Button>
-                      )}
-                    </div>
-                    {expandedCode === codeKey && task.lastCode && (
-                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-none border border-[#dddddd] bg-[#f7f7f7] p-3 font-mono text-xs text-black">
-                        {task.lastCode}
-                        {task.lastCodeAt && (
-                          <span className="mt-2 block text-[#999999]">
-                            快照时间：{new Date(task.lastCodeAt).toLocaleString('zh-CN')}
-                          </span>
+                      {task.taskTitle}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-[#666666]">
+                      {task.passed}/{task.totalCheckpoints} 关 · {task.attempts} 次尝试
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium ${meta.className}`}
+                      >
+                        {task.status === 'submitted' ? (
+                          <CheckCircle2 className="size-3" />
+                        ) : task.status === 'in_progress' ? (
+                          <Clock className="size-3" />
+                        ) : (
+                          <CircleDashed className="size-3" />
                         )}
-                      </pre>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-xs text-[#999999]">
-        打回后将清除该学生此任务的全部关卡进度与提交标记，学生刷新后可重新闯关。
-      </p>
+                        {meta.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-1">
+                        {task.lastCode && (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() =>
+                              setExpandedCode(expandedCode === codeKey ? null : codeKey)
+                            }
+                            aria-label={`查看 ${student.studentName} 的代码快照`}
+                          >
+                            <Eye className="size-3 mr-1" />
+                            代码
+                          </Button>
+                        )}
+                        {(task.status !== 'not_started' || task.attempts > 0 || task.submitted) && (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            disabled={rejecting === rowKey}
+                            onClick={() =>
+                              handleReject(student.studentId, student.studentName, task)
+                            }
+                            aria-label={`打回 ${student.studentName} 的 ${task.taskTitle}`}
+                          >
+                            <RotateCcw className="size-3 mr-1" />
+                            {rejecting === rowKey ? '打回中...' : '打回重做'}
+                          </Button>
+                        )}
+                      </div>
+                      {expandedCode === codeKey && task.lastCode && (
+                        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-none border border-[#dddddd] bg-[#f7f7f7] p-3 font-mono text-xs text-black">
+                          {task.lastCode}
+                          {task.lastCodeAt && (
+                            <span className="mt-2 block text-[#999999]">
+                              快照时间：{new Date(task.lastCodeAt).toLocaleString('zh-CN')}
+                            </span>
+                          )}
+                        </pre>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!overviewOnly && (
+        <p className="text-xs text-[#999999]">
+          打回后将清除该学生此任务的全部关卡进度与提交标记，学生刷新后可重新闯关。
+        </p>
+      )}
     </div>
   );
 }
