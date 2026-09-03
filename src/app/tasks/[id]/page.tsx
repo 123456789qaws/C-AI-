@@ -48,6 +48,7 @@ interface TaskApiResponse {
   progress: Record<string, { passed: boolean; attempts: number }>;
   unlockStates: UnlockState[];
   assignments: Array<{ classId: string; deadline: string | null }>;
+  submitted?: boolean;
 }
 
 /* ============================================================
@@ -130,6 +131,11 @@ export default function StudentTaskPage() {
           <div className="flex-1 min-w-0">
             <h1 className="text-sm font-semibold text-foreground truncate">
               {taskData?.task.title ?? taskId}
+              {taskData?.submitted && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-black px-2 py-0.5 align-middle text-[11px] font-medium text-white dark:bg-white dark:text-black">
+                  已完成
+                </span>
+              )}
             </h1>
             {taskData?.task.intro && (
               <p className="text-xs text-muted-foreground truncate">{taskData.task.intro}</p>
@@ -146,6 +152,7 @@ export default function StudentTaskPage() {
             unlockStates={taskData?.unlockStates}
             checkpointMode={taskData?.checkpointMode ?? 'sequential'}
             fullUnlock={taskData?.fullUnlock ?? false}
+            submittedInitial={taskData?.submitted ?? false}
           />
         </div>
       </div>

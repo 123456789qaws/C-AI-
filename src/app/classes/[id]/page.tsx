@@ -8,16 +8,8 @@ import { AuthGuard } from '@/components/auth/AuthGuard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AssignmentForm } from '@/components/class/AssignmentForm';
-import {
-  ArrowLeft,
-  Users,
-  BookOpen,
-  BarChart3,
-  CheckCircle2,
-  Clock,
-  Trophy,
-  Trash2,
-} from 'lucide-react';
+import SubmissionReview from '@/components/class/SubmissionReview';
+import { ArrowLeft, Users, BookOpen, BarChart3, Clock, Trash2 } from 'lucide-react';
 
 /* ============================================================
  * Types
@@ -574,51 +566,10 @@ export default function ClassDetailPage() {
           {activeTab === 'scores' && isTeacher && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">分数视图</CardTitle>
+                <CardTitle className="text-base">提交审阅</CardTitle>
               </CardHeader>
               <CardContent>
-                {students.length === 0 ? (
-                  <p className="text-sm text-[#666666]">暂无学生数据</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm" role="table">
-                      <thead>
-                        <tr className="border-b border-[#dddddd]">
-                          <th className="text-left px-3 py-2 font-medium text-[#999999]">学号</th>
-                          <th className="text-left px-3 py-2 font-medium text-[#999999]">姓名</th>
-                          <th className="text-center px-3 py-2 font-medium text-[#999999]">
-                            已布置任务
-                          </th>
-                          <th className="text-center px-3 py-2 font-medium text-[#999999]">状态</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {students.map((s) => (
-                          <tr
-                            key={s.id}
-                            className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
-                          >
-                            <td className="px-3 py-2 font-mono text-black">{s.id}</td>
-                            <td className="px-3 py-2 text-black">{s.name}</td>
-                            <td className="px-3 py-2 text-center text-[#999999]">
-                              {assignments.length}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              <span className="inline-flex items-center gap-1 text-xs text-[#999999]">
-                                <Trophy className="size-3" />
-                                待统计
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <p className="mt-3 text-xs text-[#999999]">
-                      <CheckCircle2 className="size-3 inline mr-0.5" />
-                      分数数据将在学生完成关卡后自动更新
-                    </p>
-                  </div>
-                )}
+                <SubmissionReview classId={classId} />
               </CardContent>
             </Card>
           )}

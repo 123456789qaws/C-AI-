@@ -63,6 +63,8 @@ interface CheckpointWorkspaceProps {
   unlockStates?: UnlockState[];
   checkpointMode?: 'sequential' | 'free';
   fullUnlock?: boolean;
+  /** 服务端持久提交态（/api/tasks/[id] 的 submitted），刷新不丢失 */
+  submittedInitial?: boolean;
 }
 
 interface VerifyResponse {
@@ -116,6 +118,7 @@ export default function CheckpointWorkspace({
   unlockStates,
   checkpointMode = 'sequential',
   fullUnlock = false,
+  submittedInitial = false,
 }: CheckpointWorkspaceProps) {
   const { user, token } = useAuth();
   const isTeacher = user?.role === 'TEACHER' || user?.role === 'ADMIN' || user?.role === 'TA';
@@ -176,6 +179,11 @@ int main() {
     setPassed(next);
   }, [progress]);
 
+  // 同步服务端提交态（含教师打回后的 cleared 状态）
+  useEffect(() => {
+    setSubmitted(submittedInitial);
+  }, [submittedInitial]);
+
   /** Luna 对话历史（气泡展示用） */
   const [messages, setMessages] = useState<LunaMessage[]>([]);
   /** 当前关卡的学生回答上下文（验证时拼接为 studentAnswer，过关后清空） */
@@ -188,7 +196,8 @@ int main() {
     score: number;
     at: string;
   } | null>(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(submittedInitial);
+  const [submitting, setSubmitting] = useState(false);
   /** 是否有待教师放行的 escalated 关卡 */
   const [hasEscalated, setHasEscalated] = useState(false);
   const toastIdRef = useRef(0);
@@ -531,17 +540,48 @@ int main() {
     pushToast('warning', '区域锁定', '该区域需通过对应检查点后才能编辑（已自动回滚）');
   }, [pushToast]);
 
-  /* ---- Hand in ---- */
+  /* ---- Hand in（持久化：POST /api/submissions 写 _submitted 行） ---- */
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (!allPassed) {
       pushToast('warning', '未完成', '请先通过所有检查点');
       return;
     }
-    setSubmitted(true);
-    pushToast('success', '提交成功', '你的代码已提交，等待教师审核');
-    addAssistantMessage('🎉 恭喜！你已完成所有检查点，代码已提交，教师将进行审核。');
-  }, [allPassed, pushToast, addAssistantMessage]);
+    if (!task || submitting || submitted) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/submissions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ taskId: task.id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; hint?: string };
+      if (res.status === 401) {
+        pushToast('error', '未授权', '请重新登录后再试');
+        return;
+      }
+      if (!res.ok) {
+        pushToast(
+          'warning',
+          '提交失败',
+          data.error === 'not_all_passed'
+            ? (data.hint ?? '请先通过所有检查点')
+            : (data.error ?? `请求失败（${res.status}）`)
+        );
+        return;
+      }
+      setSubmitted(true);
+      pushToast('success', '提交成功', '你的代码已提交，教师将进行审核');
+      addAssistantMessage('🎉 恭喜！你已完成所有检查点，代码已提交，教师将进行审核。');
+    } catch (err) {
+      pushToast('error', '网络错误', err instanceof Error ? err.message : '无法连接提交服务');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [allPassed, task, submitting, submitted, token, pushToast, addAssistantMessage]);
 
   /* ---- Toast 图标 ---- */
 
@@ -568,12 +608,20 @@ int main() {
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-5 py-3">
             <CardTitle className="text-base font-semibold">{taskTitle}</CardTitle>
-            {effectiveFullUnlock && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400">
-                <LockOpen className="size-3" aria-hidden="true" />
-                教师视角 · 全区域可编辑
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {submitted && !effectiveFullUnlock && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-black px-2.5 py-0.5 text-xs font-medium text-white dark:bg-white dark:text-black">
+                  <CheckCircle2 className="size-3" aria-hidden="true" />
+                  已完成
+                </span>
+              )}
+              {effectiveFullUnlock && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400">
+                  <LockOpen className="size-3" aria-hidden="true" />
+                  教师视角 · 全区域可编辑
+                </span>
+              )}
+            </div>
           </CardHeader>
 
           {unlockFlash && (
@@ -656,7 +704,11 @@ int main() {
                 );
               })}
               <span className="ml-auto text-xs text-muted-foreground">
-                {allPassed ? '全部通过 ✓' : `当前：${currentCheckpoint?.title ?? ''}`}
+                {submitted
+                  ? '已完成 ✓'
+                  : allPassed
+                    ? '全部通过 ✓'
+                    : `当前：${currentCheckpoint?.title ?? ''}`}
               </span>
             </div>
 
@@ -718,10 +770,10 @@ int main() {
               <Button
                 variant="outline"
                 onClick={handleSubmit}
-                disabled={!allPassed || submitted || effectiveFullUnlock}
+                disabled={!allPassed || submitted || submitting || effectiveFullUnlock}
                 className="min-w-32 rounded-lg"
               >
-                {submitted ? '已提交 ✓' : '提交作业 (Hand in)'}
+                {submitted ? '已提交 ✓' : submitting ? '提交中…' : '提交作业 (Hand in)'}
               </Button>
               {!allPassed && !effectiveFullUnlock && (
                 <p className="text-xs text-muted-foreground">

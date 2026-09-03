@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { requireStudent } from '@/lib/auth/require';
+import { SUBMITTED_MARKER } from '@/lib/submissions/marker';
 
 /** GET /api/assignments/student — 学生看自己所在班级被布置的任务 */
 export async function GET(req: NextRequest) {
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
       assignments.map(async (a) => {
         let intro: string | null = null;
         let checkpointMode: string | null = null;
+        let submitted = false;
         try {
           const { loadTask } = await import('@/lib/checkpoint/loader');
           const t = await loadTask(a.task.id);
@@ -66,11 +68,28 @@ export async function GET(req: NextRequest) {
             // ignore
           }
         }
+        try {
+          // 持久 Hand in 标记（SUBMITTED_MARKER 行，见 /api/submissions）
+          const mark = await prisma.checkpointProgress.findUnique({
+            where: {
+              studentId_taskId_checkpointId: {
+                studentId: user.id,
+                taskId: a.task.id,
+                checkpointId: SUBMITTED_MARKER,
+              },
+            },
+            select: { passed: true },
+          });
+          submitted = mark?.passed === true;
+        } catch {
+          // ignore — badge falls back to not submitted
+        }
         return {
           taskId: a.task.id,
           taskTitle: a.task.title,
           taskIntro: intro,
           checkpointMode,
+          submitted,
           classId: a.class.id,
           className: a.class.name,
           classCode: a.class.code,

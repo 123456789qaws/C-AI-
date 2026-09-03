@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { requireUser } from '@/lib/auth/require';
 import { loadTask } from '@/lib/checkpoint/loader';
+import { SUBMITTED_MARKER } from '@/lib/submissions/marker';
 
 /**
  * GET /api/tasks/[id] — single task detail
@@ -37,15 +38,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     });
   }
 
-  // Student: enrich with progress + assignment deadline
+  // Student: enrich with progress + assignment deadline + submitted flag
   const progress: Record<string, { passed: boolean; attempts: number }> = {};
+  let submitted = false;
   let assignments: { classId: string; deadline: string | null }[] = [];
   try {
     const rows = await prisma.checkpointProgress.findMany({
       where: { studentId: user.id, taskId: id },
       select: { checkpointId: true, passed: true, attempts: true },
     });
-    for (const r of rows) progress[r.checkpointId] = { passed: r.passed, attempts: r.attempts };
+    for (const r of rows) {
+      // SUBMITTED_MARKER 行 → 持久 Hand in 标记，非真实关卡
+      if (r.checkpointId === SUBMITTED_MARKER) {
+        if (r.passed) submitted = true;
+        continue;
+      }
+      progress[r.checkpointId] = { passed: r.passed, attempts: r.attempts };
+    }
 
     const enrollments = await prisma.classEnrollment.findMany({
       where: { studentId: user.id },
@@ -96,5 +105,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     progress,
     unlockStates,
     assignments,
+    submitted,
   });
 }

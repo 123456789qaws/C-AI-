@@ -40,6 +40,7 @@ interface StudentAssignment {
   classCode: string;
   deadline: string | null;
   assignedAt: string;
+  submitted?: boolean;
 }
 
 interface EnrolledClass {
@@ -305,6 +306,12 @@ function StudentView() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
+                              {a.submitted && (
+                                <span className="inline-flex items-center gap-1 rounded-none bg-black px-2 py-0.5 text-xs font-medium text-white">
+                                  <CheckCircle2 className="size-3" />
+                                  已完成
+                                </span>
+                              )}
                               {cd && (
                                 <span
                                   className={`text-xs font-medium ${
@@ -320,7 +327,7 @@ function StudentView() {
                               )}
                               <Link href={`/tasks/${a.taskId}?classId=${a.classId}`}>
                                 <Button variant="outline" size="xs">
-                                  {cd?.expired ? '查看' : '开始'}
+                                  {a.submitted ? '已完成' : cd?.expired ? '查看' : '开始'}
                                 </Button>
                               </Link>
                             </div>
