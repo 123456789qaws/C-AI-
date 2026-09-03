@@ -169,14 +169,22 @@ int main() {
     return {};
   });
 
-  // 同步服务端进度（task 异步加载后）
+  // 同步服务端进度（task 异步加载后；合并语义：不丢弃本地乐观已通过，避免 verify 后旧快照覆盖）
   useEffect(() => {
     if (!progress) return;
     const next: Record<string, boolean> = {};
     for (const [cpId, cpProgress] of Object.entries(progress)) {
       if (cpProgress.passed) next[cpId] = true;
     }
-    setPassed(next);
+    setPassed((prev) => {
+      const merged: Record<string, boolean> = { ...next };
+      for (const [cpId, v] of Object.entries(prev)) {
+        if (v) merged[cpId] = true;
+      }
+      const prevKey = Object.keys(prev).sort().join(',');
+      const mergedKey = Object.keys(merged).sort().join(',');
+      return prevKey === mergedKey ? prev : merged;
+    });
   }, [progress]);
 
   // 同步服务端提交态（含教师打回后的 cleared 状态）
@@ -210,21 +218,25 @@ int main() {
 
   const currentIndex = useMemo(() => {
     if (!checkpoints.length) return -1;
-    // In sequential mode, find first unlocked but not passed checkpoint
-    if (checkpointMode === 'sequential') {
-      return checkpoints.findIndex((cp) => {
-        const unlockState = unlockStates?.find((us) => us.checkpointId === cp.id);
-        const isUnlocked = unlockState?.unlocked ?? false;
-        const isPassed = passed[cp.id] ?? false;
-        return isUnlocked && !isPassed;
-      });
+    // free 模式：首个未通过即当前（全部可挑战）
+    if (checkpointMode === 'free') {
+      return checkpoints.findIndex((cp) => !passed[cp.id]);
     }
-    // In free mode, find first not passed checkpoint (all are unlocked)
+    // sequential：首个 unlocked && !passed；若服务端 unlockStates 快照过期
+    //（verify 刚通过、父级尚未 refetch），回退为首个 !passed，避免误判全通闪现。
+    const viaUnlock = checkpoints.findIndex((cp) => {
+      const unlockState = unlockStates?.find((us) => us.checkpointId === cp.id);
+      const isUnlocked = unlockState?.unlocked ?? false;
+      const isPassed = passed[cp.id] ?? false;
+      return isUnlocked && !isPassed;
+    });
+    if (viaUnlock !== -1) return viaUnlock;
     return checkpoints.findIndex((cp) => !passed[cp.id]);
   }, [checkpoints, checkpointMode, passed, unlockStates]);
 
   const currentCheckpoint = currentIndex >= 0 ? checkpoints[currentIndex] : null;
-  const allPassed = currentIndex < 0;
+  // checkpoints 为空（task 未加载）时不算全通，避免初始闪现
+  const allPassed = checkpoints.length > 0 && currentIndex < 0;
 
   /**
    * 未解锁区间 = 永久锁定头部 + 未解锁关卡的区间。
@@ -284,10 +296,13 @@ int main() {
     ]);
   }, []);
 
-  /* ---- 初始欢迎 + 引导问题 ---- */
+  /* ---- 初始欢迎 + 引导问题（每个 task 只发一次，避免 current 变化时重复刷屏） ---- */
 
+  const welcomedTaskRef = useRef<string | null>(null);
   useEffect(() => {
     if (!task) return;
+    if (welcomedTaskRef.current === task.id) return;
+    welcomedTaskRef.current = task.id;
     const roleHint = effectiveFullUnlock
       ? '\n\n📖 教师视角：所有编辑区域均已解锁，可以直接查看和修改代码。'
       : '';
