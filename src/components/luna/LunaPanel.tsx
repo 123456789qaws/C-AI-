@@ -7,9 +7,11 @@ import type { LunaMessage } from '@/lib/mock/lunaMocks';
 interface LunaPanelProps {
   messages: LunaMessage[];
   onSend: (content: string) => void;
+  /** Bug4-luna：异步问答进行中时禁用输入（教师端真实请求场景） */
+  disabled?: boolean;
 }
 
-export default function LunaPanel({ messages, onSend }: LunaPanelProps) {
+export default function LunaPanel({ messages, onSend, disabled = false }: LunaPanelProps) {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -24,7 +26,7 @@ export default function LunaPanel({ messages, onSend }: LunaPanelProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || disabled) return;
     onSend(inputValue.trim());
     setInputValue('');
   };
@@ -103,8 +105,9 @@ export default function LunaPanel({ messages, onSend }: LunaPanelProps) {
             id="luna-input"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="向 Luna 提问 C 语言问题..."
-            className="min-h-[80px] max-h-[160px] resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+            placeholder={disabled ? 'Luna 正在思考，请稍候…' : '向 Luna 提问 C 语言问题...'}
+            disabled={disabled}
+            className="min-h-[80px] max-h-[160px] resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:cursor-not-allowed disabled:opacity-60"
             aria-label="向 Luna 提问"
             rows={3}
           />
@@ -112,8 +115,12 @@ export default function LunaPanel({ messages, onSend }: LunaPanelProps) {
             <span className="text-xs text-muted-foreground">
               {charCount} / {maxChars} 字符
             </span>
-            <Button type="submit" size="sm" disabled={!inputValue.trim() || charCount > maxChars}>
-              发送
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!inputValue.trim() || charCount > maxChars || disabled}
+            >
+              {disabled ? '思考中…' : '发送'}
             </Button>
           </div>
         </div>

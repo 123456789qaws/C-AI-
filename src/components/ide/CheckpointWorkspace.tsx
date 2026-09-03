@@ -437,10 +437,74 @@ int main() {
     pushToast,
   ]);
 
-  /* ---- Luna 聊天（回答引导问题；提交验证走「请求验证」按钮） ---- */
+  /* ---- Luna 聊天（学生：回答引导问题，提交验证走「请求验证」按钮；
+     教师预览：真实问答，直调 /api/ai/socratic teacherPreview，不写学生上下文） ---- */
 
   const handleLunaSend = useCallback(
-    (content: string) => {
+    async (content: string) => {
+      // 教师/TA/ADMIN：真实问答路径 —— 只写气泡，不碰 chatContextRef（verify 学生上下文），
+      // 不写 CheckpointProgress，后端以 JWT role 二次校验 + role=teacher 日志隔离
+      if (effectiveFullUnlock) {
+        if (isLoading) return;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-teacher-${Date.now()}-${++msgSeqRef.current}`,
+            role: 'user',
+            content,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+        setIsLoading(true);
+        try {
+          const res = await fetch('/api/ai/socratic', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              taskId: task?.id ?? 'unknown',
+              checkpointId: currentCheckpoint?.id ?? 'unknown',
+              question: content,
+              teacherPreview: true,
+              codeSnippet: code.slice(0, 8000),
+            }),
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            reply?: string;
+            error?: string;
+            hint?: string;
+          };
+          if (res.status === 401) {
+            pushToast('error', '未授权', '请重新登录后再试');
+            addAssistantMessage('⚠️ 登录已过期或身份凭证无效，请重新登录后再向 Luna 提问。');
+            return;
+          }
+          if (res.status === 403) {
+            pushToast('error', '无权限', '仅教师/助教/管理员可使用预览问答');
+            addAssistantMessage('⚠️ 当前身份无权使用教师预览问答。');
+            return;
+          }
+          if (!res.ok) {
+            const message =
+              data.error === 'rate_limited'
+                ? `提问过于频繁（${data.hint ?? '请稍后再试'}）`
+                : (data.error ?? `请求失败（${res.status}）`);
+            pushToast('error', 'Luna 请求失败', message);
+            addAssistantMessage(`⚠️ ${message}`);
+            return;
+          }
+          addAssistantMessage(data.reply?.trim() || '（Luna 暂未返回内容，请换个问法重试）');
+        } catch (err) {
+          pushToast('error', '网络错误', err instanceof Error ? err.message : '无法连接 Luna 服务');
+          addAssistantMessage('⚠️ 网络异常，请稍后重试提问。');
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+      // 学生路径（不变）：本地记录回答，验证走「请求验证」按钮
       addUserMessage(content);
       window.setTimeout(() => {
         addAssistantMessage(
@@ -448,7 +512,17 @@ int main() {
         );
       }, 300);
     },
-    [addUserMessage, addAssistantMessage]
+    [
+      effectiveFullUnlock,
+      isLoading,
+      token,
+      task,
+      currentCheckpoint,
+      code,
+      addUserMessage,
+      addAssistantMessage,
+      pushToast,
+    ]
   );
 
   /* ---- 越权编辑前端回滚提示 ---- */
@@ -664,7 +738,11 @@ int main() {
 
       {/* ================= 右：Luna AI 助教 ================= */}
       <aside className="flex h-full w-[360px] flex-shrink-0 flex-col border-l border-border bg-card">
-        <LunaPanel messages={messages} onSend={handleLunaSend} />
+        <LunaPanel
+          messages={messages}
+          onSend={handleLunaSend}
+          disabled={effectiveFullUnlock && isLoading}
+        />
       </aside>
 
       {/* ================= Toast 通知 ================= */}

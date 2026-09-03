@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { aiProvider } from '@/lib/providers/ai';
 import { mockAIProvider } from '@/lib/providers/ai/mock';
-import { SocraticSystemPrompt } from '@/lib/ai/prompt';
+import { SocraticSystemPrompt, TeacherQaSystemPrompt } from '@/lib/ai/prompt';
 import { buildSocraticContext } from '@/lib/ai/context';
 import { checkRateLimit } from '@/lib/ai/rateLimit';
 import { sanitizePrompt, redactSecrets, logAiUsage, enforceSocraticHardRule } from '@/lib/ai/guard';
@@ -58,6 +58,13 @@ interface SocraticRequestBody {
   /** 所属任务（Task 18 日志落库用）；缺省 'unknown' */
   taskId?: string;
   studentAnswer?: string;
+  /** Bug4-luna：教师问答的问题正文（studentAnswer 的别名，教师端发送 question） */
+  question?: string;
+  /**
+   * Bug4-luna：教师预览问答标志。前端在教师视角（effectiveFullUnlock）置 true；
+   * 服务端必须用 JWT role 二次校验 TEACHER/TA/ADMIN，否则 403。
+   */
+  teacherPreview?: boolean;
   codeSnippet?: string;
   history?: Array<{ role?: string; content?: string }>;
   /** 可选：上次判题结果（status RE 时可能注入崩溃线索，用于苏格拉底追问） */
@@ -90,6 +97,18 @@ function resolveStudentId(request: Request, body: SocraticRequestBody): string {
     if (payload) return payload.id;
   }
   return escapeInput(body.studentId ?? '', MAX_STUDENT_ID_LEN) || 'anonymous';
+}
+
+/** Bug4-luna：解析 JWT 身份（含 role），教师问答路径服务端二次校验用 */
+function resolveIdentity(request: Request): { id: string; role: string } | null {
+  const header = request.headers.get('authorization');
+  if (!header?.startsWith('Bearer ')) return null;
+  return verifyToken(header.slice('Bearer '.length).trim());
+}
+
+/** Bug4-luna：教师问答是否为特权角色 */
+function isTeacherRole(role: string): boolean {
+  return role === 'TEACHER' || role === 'TA' || role === 'ADMIN';
 }
 
 /** 从模型文本中稳健地解析出 {pass,confidence,reply,reason}，失败时降级 */
@@ -159,6 +178,96 @@ export async function POST(request: Request) {
   const studentId = resolveStudentId(request, body);
   const taskId = escapeInput(body.taskId ?? '', 256) || 'unknown';
   const checkpointId = escapeInput(body.checkpointId ?? '', 256) || 'unknown';
+
+  // —— Bug4-luna：教师预览问答路径（与学生 verify 流程完全隔离） ——
+  // 前端教师视角（effectiveFullUnlock）置 teacherPreview=true 并发送 question；
+  // 服务端以 JWT role 为唯一权威二次校验，学生冒充直接 403。
+  if (body.teacherPreview === true) {
+    const identity = resolveIdentity(request);
+    if (!identity || !isTeacherRole(identity.role)) {
+      return NextResponse.json({ error: 'forbidden_teacher_only' }, { status: 403 });
+    }
+    const question = sanitizePrompt(body.question ?? body.studentAnswer ?? '')
+      .trim()
+      .slice(0, MAX_STUDENT_ANSWER_LEN);
+    if (!question) {
+      return NextResponse.json({ error: 'question_required' }, { status: 400 });
+    }
+    // 独立限流桶（teacherId+taskId），与学生 5/checkpoint/h 互不占用
+    const teacherRate = checkRateLimit(`teacher:${identity.id}`, taskId || checkpointId);
+    if (!teacherRate.allowed) {
+      return NextResponse.json(
+        {
+          error: 'rate_limited',
+          retryAfterSeconds: teacherRate.retryAfterSeconds,
+          hint: '提问过于频繁，请稍后再试',
+        },
+        { status: 429, headers: { 'Retry-After': String(teacherRate.retryAfterSeconds) } }
+      );
+    }
+    const teacherCode = escapeInput(body.codeSnippet ?? '', MAX_CODE_SNIPPET_LEN);
+    const teacherPrompt = [
+      `【教师备课问答】任务：${taskId}，关卡：${checkpointId}。`,
+      teacherCode
+        ? `教师当前查看的代码（仅作上下文，绝不向学生侧回传）：\n\`\`\`c\n${teacherCode}\n\`\`\``
+        : '',
+      `教师提问：${question}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    let teacherCompletion: { text: string; usage: { tokens: number } };
+    let teacherProvider: string;
+    try {
+      if (consecutiveProviderFailures >= CIRCUIT_OPEN_THRESHOLD) {
+        teacherCompletion = await mockAIProvider.complete('circuit-open fallback');
+        teacherProvider = mockAIProvider.name;
+      } else {
+        teacherCompletion = await aiProvider.complete(teacherPrompt, {
+          system: TeacherQaSystemPrompt,
+        });
+        teacherProvider = aiProvider.name;
+      }
+      consecutiveProviderFailures = 0;
+    } catch (err) {
+      consecutiveProviderFailures += 1;
+      console.error(
+        '[socratic] teacher provider error:',
+        redactSecrets(err instanceof Error ? err.message : String(err))
+      );
+      if (consecutiveProviderFailures >= CIRCUIT_OPEN_THRESHOLD) {
+        teacherCompletion = await mockAIProvider.complete('circuit-breaker fallback');
+        teacherProvider = mockAIProvider.name;
+      } else {
+        return NextResponse.json({ error: 'ai_provider_error' }, { status: 502 });
+      }
+    }
+    // 同遵守苏格拉底硬规则：>5 行完整函数绝不流出；隐藏测试本路由从不加载，无泄漏面
+    const teacherReply = enforceSocraticHardRule(teacherCompletion.text.trim().slice(0, 4000));
+    logAiUsage({ provider: teacherProvider, tokens: teacherCompletion.usage.tokens, checkpointId });
+    // role=teacher + 独立 gateType，教师问答不混入学生 CheckpointProgress 与看板学生口径
+    await logInteraction({
+      studentId: identity.id,
+      taskId,
+      checkpointId,
+      sessionId: randomUUID(),
+      role: 'teacher',
+      promptText: teacherPrompt.slice(0, 20000),
+      aiReply: teacherReply,
+      gateResult: 'passed',
+      gateType: 'ai_teacher_qa',
+      model: teacherProvider,
+      tokens: teacherCompletion.usage.tokens,
+      confidence: null,
+      codeBefore: undefined,
+      codeAfter: teacherCode.length > 0 ? teacherCode : undefined,
+    });
+    return NextResponse.json({
+      reply: teacherReply,
+      provider: teacherProvider,
+      remaining: teacherRate.remaining,
+      teacherPreview: true,
+    });
+  }
 
   // 注入过滤 + 转义 + 截断
   const studentAnswer = sanitizePrompt(body.studentAnswer ?? '')
