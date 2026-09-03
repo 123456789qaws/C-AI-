@@ -131,8 +131,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const provider = getJudgeProvider();
   try {
+    const provider = getJudgeProvider();
     // p-limit queues the 4th+ concurrent request instead of spawning
     // unbounded compile/run processes. Network egress of user code is banned
     // by the docker runner's --network=none (see header comment).
@@ -145,10 +145,17 @@ export async function POST(req: Request) {
     };
     return NextResponse.json(capped);
   } catch (err) {
-    console.error(`[judge/run] provider '${provider.name}' failed:`, err);
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error('[judge/run] provider failed:', detail);
+    const infra = detail.includes('JUDGE_INFRA');
     return NextResponse.json(
-      { error: 'JUDGE_FAILED', message: 'Judge provider failed to run the submission' },
-      { status: 500 }
+      {
+        error: infra ? 'JUDGE_UNAVAILABLE' : 'JUDGE_FAILED',
+        message: infra
+          ? detail.replace(/^JUDGE_INFRA:\s*/, '')
+          : 'Judge provider failed to run the submission',
+      },
+      { status: infra ? 503 : 500 }
     );
   }
 }

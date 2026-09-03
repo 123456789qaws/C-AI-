@@ -61,6 +61,43 @@ export function isDockerDaemonAvailable(timeoutMs = 5_000): boolean {
   }
 }
 
+/**
+ * Image probe: the daemon may be reachable while `gcc:13` was never pulled
+ * (the exact Bug1-judge report: "Unable to find image 'gcc:13' locally").
+ * Auto mode must check BOTH daemon and image before choosing docker.
+ */
+export function isDockerImageAvailable(image: string = DOCKER_IMAGE, timeoutMs = 5_000): boolean {
+  try {
+    execFileSync('docker', ['image', 'inspect', image], {
+      timeout: timeoutMs,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Distinguish INFRA failures (docker missing / image missing / daemon down)
+ * from REAL compile errors. Infra output comes from the docker CLI itself,
+ * never from gcc, so it must never be reported as CE ("代码无法通过编译").
+ */
+export function isInfraErrorMessage(detail: string): boolean {
+  return (
+    /unable to find image/i.test(detail) ||
+    /no such image/i.test(detail) ||
+    /cannot connect to the docker daemon/i.test(detail) ||
+    /is the docker daemon running/i.test(detail) ||
+    /error during connect/i.test(detail) ||
+    /docker: error response from daemon/i.test(detail) ||
+    /pull access denied|pull.*failed|failed to solve/i.test(detail) ||
+    /docker run failed/i.test(detail) ||
+    /JUDGE_INFRA/.test(detail)
+  );
+}
+
 function toSeconds(ms: number): number {
   return Math.max(1, Math.ceil(ms / 1000));
 }
@@ -123,6 +160,13 @@ export class DockerJudgeProvider implements JudgeProvider {
       } catch (err) {
         const e = err as ExecError;
         const detail = (e.stderr ?? '') || (e.stdout ?? '') || e.message;
+        // Infra failure (image/daemon missing) is NOT a compile error:
+        // throw so auto mode can fall back to local gcc instead of faking CE.
+        if (isInfraErrorMessage(detail)) {
+          throw new Error(
+            `JUDGE_INFRA: 判题机docker不可用（${detail.trim().split('\n')[0]?.slice(0, 200) ?? 'unknown'}），已自动切换本地编译`
+          );
+        }
         return {
           status: 'CE',
           stdout: '',

@@ -7,6 +7,7 @@ const envSchema = z.object({
   QWEN_URL: z.string().optional(),
   JUDGE_MODE: z.enum(['auto', 'docker', 'local']).default('auto'),
   JUDGE_URL: z.string().optional(),
+  LOCAL_GCC_PATH: z.string().optional(),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
 });
 

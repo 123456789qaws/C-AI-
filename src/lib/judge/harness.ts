@@ -91,8 +91,19 @@ function hintFor(
   }
 }
 
-/** CE hint reuses the compiler's own diagnostics (that is not the answer). */
+/**
+ * CE hint reuses the compiler's own diagnostics (that is not the answer).
+ * Defensive: if an infra message ever leaks through as CE (custom provider),
+ * translate it to an actionable Chinese hint instead of blaming the syntax.
+ */
 function ceHint(stderr: string): string {
+  if (
+    /unable to find image|no such image|docker daemon|JUDGE_INFRA|gcc not found|未找到 gcc/i.test(
+      stderr
+    )
+  ) {
+    return '判题机环境异常（docker 镜像缺失或本地无 gcc），非代码问题：请联系教师检查判题机，或稍后重试';
+  }
   const firstLine = stderr.trim().split('\n')[0] ?? '';
   const detail = firstLine.length > 200 ? `${firstLine.slice(0, 200)}…` : firstLine;
   return detail

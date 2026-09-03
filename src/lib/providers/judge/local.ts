@@ -15,15 +15,27 @@ const DEFAULT_WALL_MS = 5_000;
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 
 const GCC_MISSING_STDERR =
-  'gcc not found, install MinGW-w64 (e.g. `winget install BrechtSanders.WinLibs.POSIX.UCRT`) and restart the dev server';
+  '本地未找到 gcc：已自动尝试本地编译但失败。请安装 MinGW-w64（`winget install BrechtSanders.WinLibs.POSIX.UCRT`）并重启服务，或设置 LOCAL_GCC_PATH 指向 gcc 可执行文件';
+
+/**
+ * Resolve the gcc binary: explicit LOCAL_GCC_PATH wins (custom MinGW install
+ * location), otherwise fall back to `gcc` on PATH. Never hardcode an
+ * absolute Windows path - the env var keeps it configurable.
+ */
+export function resolveGccBinary(): string {
+  const fromEnv = process.env.LOCAL_GCC_PATH?.trim();
+  return fromEnv && fromEnv.length > 0 ? fromEnv : 'gcc';
+}
 
 /** Lazily probed once per process; a fresh install requires a server restart. */
 let gccAvailable: boolean | null = null;
+let probedBinary: string | null = null;
 
-function probeGcc(): boolean {
-  if (gccAvailable !== null) return gccAvailable;
+export function probeGcc(): boolean {
+  const bin = resolveGccBinary();
+  if (gccAvailable !== null && probedBinary === bin) return gccAvailable;
   try {
-    execFileSync('gcc', ['--version'], {
+    execFileSync(bin, ['--version'], {
       timeout: 5_000,
       stdio: 'ignore',
       windowsHide: true,
@@ -32,6 +44,7 @@ function probeGcc(): boolean {
   } catch {
     gccAvailable = false;
   }
+  probedBinary = bin;
   return gccAvailable;
 }
 
@@ -152,15 +165,12 @@ export class LocalJudgeProvider implements JudgeProvider {
 
   async run(req: JudgeRunRequest): Promise<JudgeResult> {
     const startedAt = Date.now();
+    const gccBin = resolveGccBinary();
 
     if (!probeGcc()) {
-      return {
-        status: 'CE',
-        stdout: '',
-        stderr: GCC_MISSING_STDERR,
-        timeMs: Date.now() - startedAt,
-        memoryKb: 0,
-      };
+      // Infra failure, NOT a compile error: throw so callers surface
+      // judge_unavailable (escalated / 500) instead of a fake CE verdict.
+      throw new Error(`JUDGE_INFRA: ${GCC_MISSING_STDERR}（tried: ${gccBin}）`);
     }
 
     const dir = await mkdtemp(join(tmpdir(), 'judge-local-'));
@@ -174,7 +184,7 @@ export class LocalJudgeProvider implements JudgeProvider {
       let compileWarnings = '';
       try {
         const compile = await execFileAsync(
-          'gcc',
+          gccBin,
           ['-std=c11', '-Wall', '-Wextra', '-O2', 'main.c', '-o', exeName],
           {
             cwd: dir,
