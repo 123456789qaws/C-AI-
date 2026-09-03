@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -37,17 +37,67 @@ interface AssignmentFormProps {
   classes: ClassOption[];
   onSubmit: (data: { taskId: string; classId: string; deadline: string | null }) => Promise<void>;
   loading?: boolean;
+  /** Optional externally-provided task list (e.g. parent already fetched GET /api/tasks). */
+  tasks?: TaskOption[];
+  /** Bump to force a refetch of the task list (e.g. after TaskCreator onCreated). */
+  refreshKey?: number | string;
 }
 
-const TASK_OPTIONS: TaskOption[] = [
+const FALLBACK_TASK_OPTIONS: TaskOption[] = [
   { id: 'fib_L2', title: 'fib_L2 (递归 / Fibonacci)' },
   { id: 'linked_list_reverse', title: 'linked_list_reverse (链表反转)' },
 ];
 
-export function AssignmentForm({ classes, onSubmit, loading }: AssignmentFormProps) {
+function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('luna-token');
+}
+
+export function AssignmentForm({
+  classes,
+  onSubmit,
+  loading,
+  tasks,
+  refreshKey,
+}: AssignmentFormProps) {
   const [taskId, setTaskId] = useState('');
   const [classId, setClassId] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [remoteTasks, setRemoteTasks] = useState<TaskOption[] | null>(null);
+  const [tasksLoading, setTasksLoading] = useState(false);
+
+  const fetchTasks = useCallback(async () => {
+    // Parent-provided list wins; still allow focus-refetch to refresh it via onTasksChanged? No — skip fetch.
+    if (tasks) return;
+    const token = getToken();
+    if (!token) return;
+    setTasksLoading(true);
+    try {
+      const res = await fetch('/api/tasks', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list: TaskOption[] = (data.tasks ?? []).map((t: { id: string; title: string }) => ({
+          id: t.id,
+          title: t.title,
+        }));
+        if (list.length > 0) setRemoteTasks(list);
+      }
+    } catch {
+      // ignore — fallback options remain visible
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [tasks]);
+
+  // Fetch live task list on mount + whenever parent signals a new task was created.
+  useEffect(() => {
+    void fetchTasks();
+  }, [fetchTasks, refreshKey]);
+
+  const visibleTasks = tasks ?? remoteTasks ?? FALLBACK_TASK_OPTIONS;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,11 +130,12 @@ export function AssignmentForm({ classes, onSubmit, loading }: AssignmentFormPro
               id="assign-task"
               value={taskId}
               onChange={(e) => setTaskId(e.target.value)}
+              onFocus={() => void fetchTasks()}
               className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/50"
               required
             >
-              <option value="">选择任务...</option>
-              {TASK_OPTIONS.map((t) => (
+              <option value="">{tasksLoading ? '加载任务列表...' : '选择任务...'}</option>
+              {visibleTasks.map((t: TaskOption) => (
                 <option key={t.id} value={t.id}>
                   {t.title}
                 </option>

@@ -364,6 +364,9 @@ function TeacherView() {
   const [showCreator, setShowCreator] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  // Bumped every time TaskCreator reports a new task so any task list
+  // on this page (or navigated-to assign forms) refetches fresh data.
+  const [taskRefreshKey, setTaskRefreshKey] = useState(0);
 
   const fetchClasses = useCallback(async () => {
     const token = getToken();
@@ -571,7 +574,16 @@ function TeacherView() {
           <Plus className="size-3 mr-1" />
           {showCreator ? '收起任务创建器' : '创建新任务'}
         </Button>
-        {showCreator && <TaskCreator />}
+        {showCreator && (
+          <TaskCreator
+            key={taskRefreshKey}
+            onCreated={(taskId) => {
+              setTaskRefreshKey((k) => k + 1);
+              setToastMsg(`任务 "${taskId}" 已创建，可前往班级页面布置`);
+              setTimeout(() => setToastMsg(null), 4000);
+            }}
+          />
+        )}
       </div>
     </div>
   );

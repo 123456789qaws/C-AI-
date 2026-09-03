@@ -53,14 +53,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden: not the class teacher' }, { status: 403 });
     }
 
-    // Verify task exists
-    const task = await prisma.task.findUnique({
+    // Verify task exists — tasks/*.json is truth, prisma.task only mirrors.
+    // If the DB mirror is missing (e.g. upsert skipped while DB was down),
+    // fall back to the task file and repair the mirror instead of 404.
+    let task = await prisma.task.findUnique({
       where: { id: taskId },
       select: { id: true, title: true },
     });
 
     if (!task) {
-      return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+      try {
+        const { loadTask } = await import('@/lib/checkpoint/loader');
+        const fileTask = await loadTask(taskId);
+        // Best-effort mirror repair so subsequent reads hit DB too.
+        try {
+          await (prisma.task as unknown as { upsert: (args: unknown) => Promise<unknown> }).upsert({
+            where: { id: fileTask.id },
+            update: {
+              title: fileTask.title,
+              intro: fileTask.intro ?? null,
+              checkpointMode: fileTask.checkpointMode,
+              checkpoints: fileTask.checkpoints as unknown as object,
+            },
+            create: {
+              id: fileTask.id,
+              title: fileTask.title,
+              intro: fileTask.intro ?? null,
+              checkpointMode: fileTask.checkpointMode,
+              authorId: fileTask.authorId ?? user.id,
+              checkpoints: fileTask.checkpoints as unknown as object,
+              hiddenTests: {},
+            },
+          });
+        } catch {
+          // mirror repair is best-effort; assignment can still proceed
+        }
+        task = { id: fileTask.id, title: fileTask.title };
+      } catch {
+        return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+      }
     }
 
     // Create or update assignment (upsert by unique composite key would need @@unique, using find+create)
