@@ -5,6 +5,9 @@ import { TaskSchema } from '@/lib/checkpoint/schema';
 import { publishTask } from '@/lib/tasks/publisher';
 import { listTasks } from '@/lib/checkpoint/loader';
 
+// Task list must always reflect newly published files: no static cache.
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/tasks — list published tasks
  * - TEACHER/ADMIN: own authored + all (for now returns all; author filter optional)
@@ -54,7 +57,10 @@ export async function GET(req: NextRequest) {
       assigned: assignedTaskIds ? assignedTaskIds.has(t.id) : undefined,
     }));
 
-    return NextResponse.json({ tasks: payload });
+    return NextResponse.json(
+      { tasks: payload },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (err) {
     console.error('[tasks GET] error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

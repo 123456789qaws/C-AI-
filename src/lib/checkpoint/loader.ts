@@ -45,5 +45,21 @@ export async function listTasks(): Promise<Task[]> {
     .filter((name) => name.endsWith('.json'))
     .map((name) => name.slice(0, -'.json'.length))
     .sort();
-  return Promise.all(ids.map((id) => loadTask(id)));
+  // One corrupt file must never hide all other tasks: skip failures individually.
+  const settled = await Promise.allSettled(ids.map((id) => loadTask(id)));
+  const tasks: Task[] = [];
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i];
+    if (r.status === 'fulfilled') {
+      tasks.push(r.value);
+    } else {
+      console.error(
+        `[loader] skip invalid task file tasks/${ids[i]}.json:`,
+        (r as PromiseRejectedResult).reason instanceof Error
+          ? ((r as PromiseRejectedResult).reason as Error).message
+          : String((r as PromiseRejectedResult).reason)
+      );
+    }
+  }
+  return tasks;
 }
