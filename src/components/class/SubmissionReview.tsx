@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/button';
 
 /* ============================================================
  * SubmissionReview —— 教师审阅学生提交 + 打回重做（Bug5-submit）
+ *   + 总得分概览（Bug3-scores）：每任务满分 100，submitted→100，
+ *     否则按 passed/totalCheckpoints 比例四舍五入（API 下发 score，前端兜底同公式）；
+ *     总分=sum，平均分=total/N（1 位小数，N=0 时 guard 为 —）。
  *
  * 数据源：GET /api/submissions?classId=&taskId=（班级作用域，教师须拥有班级）
  * 打回：DELETE /api/submissions { studentId, taskId, classId }，
@@ -22,6 +25,7 @@ interface TaskSubmission {
   attempts: number;
   submitted: boolean;
   status: 'submitted' | 'in_progress' | 'not_started';
+  score: number;
   lastCode: string | null;
   lastCodeAt: string | null;
 }
@@ -139,12 +143,40 @@ export default function SubmissionReview({ classId }: { classId: string }) {
     }
   }
 
+  // Bug3-scores: 每任务得分 —— 优先 API 下发的 score，缺失时按同公式兜底
+  const scoreOf = (t: TaskSubmission): number => {
+    if (typeof t.score === 'number' && Number.isFinite(t.score)) return t.score;
+    if (t.submitted) return 100;
+    return t.totalCheckpoints > 0 ? Math.round((t.passed / t.totalCheckpoints) * 100) : 0;
+  };
+
+  // Bug3-scores: 按本班 enrollments（submissions 即本班学生）× 已布置任务聚合
+  const assignedCount = taskOptions.length;
+  const overviewRows = submissions.map((s) => {
+    const byId = new Map(s.tasks.map((t) => [t.taskId, t]));
+    const perTask = taskOptions.map((o) => {
+      const t = byId.get(o.id);
+      return t ? scoreOf(t) : 0;
+    });
+    const submittedCount = s.tasks.filter((t) => t.submitted).length;
+    const total = perTask.reduce((sum, v) => sum + v, 0);
+    return {
+      student: s,
+      assigned: assignedCount,
+      submittedCount,
+      rateText: assignedCount > 0 ? `${Math.round((submittedCount / assignedCount) * 100)}%` : '—',
+      perTask,
+      total,
+      avgText: assignedCount > 0 ? (total / assignedCount).toFixed(1) : '—',
+    };
+  });
+
   if (loading) {
     return <p className="py-8 text-center text-sm text-[#666666]">加载提交数据中...</p>;
   }
 
   if (submissions.length === 0) {
-    return <p className="py-8 text-center text-sm text-[#666666]">暂无学生提交数据</p>;
+    return <p className="py-8 text-center text-sm text-[#666666]">暂无学生数据</p>;
   }
 
   return (
@@ -159,6 +191,61 @@ export default function SubmissionReview({ classId }: { classId: string }) {
           {notice.text}
         </div>
       )}
+
+      {/* Bug3-scores: 每学生总得分概览（单次 GET 聚合，无 N+1） */}
+      <div className="space-y-2">
+        <p className="text-xs text-[#999999]">
+          总得分概览（每任务满分 100 · 总分=各任务得分之和 · 平均分=总分/已布置）
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" role="table" aria-label="学生总得分概览">
+            <thead>
+              <tr className="border-b border-[#dddddd]">
+                <th className="px-3 py-2 text-left font-medium text-[#999999]">学号</th>
+                <th className="px-3 py-2 text-left font-medium text-[#999999]">姓名</th>
+                <th className="px-3 py-2 text-center font-medium text-[#999999]">已布置</th>
+                <th className="px-3 py-2 text-center font-medium text-[#999999]">已提交</th>
+                <th className="px-3 py-2 text-center font-medium text-[#999999]">参与率</th>
+                {taskOptions.map((t) => (
+                  <th
+                    key={t.id}
+                    className="max-w-[140px] truncate px-3 py-2 text-center font-medium text-[#999999]"
+                    title={t.title}
+                  >
+                    {t.title}
+                  </th>
+                ))}
+                <th className="px-3 py-2 text-center font-medium text-[#999999]">总分</th>
+                <th className="px-3 py-2 text-center font-medium text-[#999999]">平均分</th>
+              </tr>
+            </thead>
+            <tbody>
+              {overviewRows.map((r) => (
+                <tr
+                  key={r.student.studentId}
+                  className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
+                >
+                  <td className="px-3 py-2 font-mono text-black">{r.student.studentId}</td>
+                  <td className="px-3 py-2 text-black">{r.student.studentName}</td>
+                  <td className="px-3 py-2 text-center text-black">{r.assigned}</td>
+                  <td className="px-3 py-2 text-center text-black">{r.submittedCount}</td>
+                  <td className="px-3 py-2 text-center text-black">{r.rateText}</td>
+                  {r.perTask.map((v, i) => (
+                    <td
+                      key={`${r.student.studentId}::${taskOptions[i]?.id ?? i}`}
+                      className="px-3 py-2 text-center text-black"
+                    >
+                      {v}
+                    </td>
+                  ))}
+                  <td className="px-3 py-2 text-center font-semibold text-black">{r.total}</td>
+                  <td className="px-3 py-2 text-center text-black">{r.avgText}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {taskOptions.length > 1 && (
         <div className="flex items-center gap-2">

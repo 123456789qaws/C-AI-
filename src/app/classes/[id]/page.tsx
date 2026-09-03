@@ -611,7 +611,7 @@ export default function ClassDetailPage() {
           {activeTab === 'scores' && isTeacher && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">提交审阅</CardTitle>
+                <CardTitle className="text-base">总得分概览与提交审阅</CardTitle>
               </CardHeader>
               <CardContent>
                 <SubmissionReview classId={classId} />

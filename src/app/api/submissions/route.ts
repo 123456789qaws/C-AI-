@@ -116,6 +116,8 @@ export async function GET(req: NextRequest) {
               : passed > 0 || attempts > 0
                 ? 'in_progress'
                 : 'not_started';
+            // Bug3-scores: 每任务 100 分制 —— submitted→100，否则按 passed/total 比例四舍五入（未开始为 0）
+            const score = submitted ? 100 : total > 0 ? Math.round((passed / total) * 100) : 0;
 
             let lastCode: string | null = null;
             let lastCodeAt: string | null = null;
@@ -139,6 +141,7 @@ export async function GET(req: NextRequest) {
               attempts,
               submitted,
               status,
+              score,
               lastCode,
               lastCodeAt,
             };
