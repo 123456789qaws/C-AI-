@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -201,6 +201,18 @@ export default function TeacherDashboard() {
   const [assignTasksKey, setAssignTasksKey] = useState(0);
   /* —— T7-templates: 侧边栏新建模板折叠态（默认收起，保持导航紧凑） —— */
   const [templateCreatorOpen, setTemplateCreatorOpen] = useState(false);
+  /* —— T1-side: 侧边栏导航 active 态 + 任务模板面板锚点滚动/聚焦 —— */
+  const [activeSection, setActiveSection] = useState('overview');
+  const taskTemplatesRef = useRef<HTMLElement | null>(null);
+  const taskTemplatesTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const scrollToTaskTemplates = useCallback(() => {
+    setActiveSection('tasks');
+    setTemplateCreatorOpen(true);
+    taskTemplatesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => {
+      taskTemplatesTitleRef.current?.focus({ preventScroll: true });
+    }, 350);
+  }, []);
 
   /* —— Step 1: 鉴权 —— */
   useEffect(() => {
@@ -571,8 +583,13 @@ export default function TeacherDashboard() {
           </div>
           <a
             href="#overview"
-            className="flex items-center gap-3 rounded-none px-3 py-2 text-sm font-medium text-black bg-black/10"
-            aria-current="page"
+            onClick={() => setActiveSection('overview')}
+            className={
+              activeSection === 'overview'
+                ? 'flex items-center gap-3 rounded-none px-3 py-2 text-sm font-medium text-black bg-black/10'
+                : 'flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors'
+            }
+            aria-current={activeSection === 'overview' ? 'page' : undefined}
           >
             <svg
               className="size-5"
@@ -590,7 +607,13 @@ export default function TeacherDashboard() {
           </a>
           <a
             href="#students"
-            className="flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors"
+            onClick={() => setActiveSection('students')}
+            className={
+              activeSection === 'students'
+                ? 'flex items-center gap-3 rounded-none px-3 py-2 text-sm font-medium text-black bg-black/10'
+                : 'flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors'
+            }
+            aria-current={activeSection === 'students' ? 'page' : undefined}
           >
             <svg
               className="size-5"
@@ -607,8 +630,17 @@ export default function TeacherDashboard() {
             学生列表
           </a>
           <a
-            href="#tasks"
-            className="flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors"
+            href="#dashboard-task-templates"
+            onClick={(e) => {
+              e.preventDefault();
+              scrollToTaskTemplates();
+            }}
+            className={
+              activeSection === 'tasks'
+                ? 'flex items-center gap-3 rounded-none px-3 py-2 text-sm font-medium text-black bg-black/10'
+                : 'flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors'
+            }
+            aria-current={activeSection === 'tasks' ? 'page' : undefined}
           >
             <svg
               className="size-5"
@@ -624,7 +656,13 @@ export default function TeacherDashboard() {
           </a>
           <a
             href="#analytics"
-            className="flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors"
+            onClick={() => setActiveSection('analytics')}
+            className={
+              activeSection === 'analytics'
+                ? 'flex items-center gap-3 rounded-none px-3 py-2 text-sm font-medium text-black bg-black/10'
+                : 'flex items-center gap-3 rounded-none px-3 py-2 text-sm text-[#666666] hover:bg-[#f7f7f7] hover:text-black transition-colors'
+            }
+            aria-current={activeSection === 'analytics' ? 'page' : undefined}
           >
             <svg
               className="size-5"
@@ -641,10 +679,18 @@ export default function TeacherDashboard() {
           </a>
         </nav>
         {/* ====== T7-templates: 侧边栏任务管理（模板查看/预览/编辑/删除 + 新建） ====== */}
-        <section id="tasks" aria-labelledby="sidebar-tasks-title" className="p-4 pt-0 space-y-2">
+        <section
+          id="dashboard-task-templates"
+          ref={taskTemplatesRef}
+          aria-label="任务模板管理"
+          aria-labelledby="sidebar-tasks-title"
+          className="p-4 pt-0 space-y-2"
+        >
           <h2
             id="sidebar-tasks-title"
-            className="px-3 py-2 text-xs font-medium text-[#999999] uppercase tracking-wider"
+            ref={taskTemplatesTitleRef}
+            tabIndex={-1}
+            className="px-3 py-2 text-xs font-medium text-[#999999] uppercase tracking-wider outline-none focus-visible:ring-1 focus-visible:ring-black"
           >
             任务管理
           </h2>
