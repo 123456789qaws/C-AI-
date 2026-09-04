@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Clock, CircleDashed, Eye, RotateCcw } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import { CheckCircle2, Clock, CircleDashed, Eye, RotateCcw, ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
  *     总分=sum，平均分=total/N（1 位小数，N=0 时 guard 为 —）。
  *   + 按任务审阅（Bug4-taskpage）：taskId 锁定单任务明细（GET 带 taskId 窄化，
  *     隐藏概览与筛选）；overviewOnly 只渲染总分概览（分数视图用，明细移至任务管理）。
+ *   + 分数折叠（T6-scores）：概览表默认仅总分（学号/姓名/已布置/已提交/参与率/
+ *     总分/平均分/详情Toggle），按行展开看该生各任务得分（单次 GET 复用，无 N+1）。
  *
  * 数据源：GET /api/submissions?classId=&taskId=（班级作用域，教师须拥有班级）
  * 打回：DELETE /api/submissions { studentId, taskId, classId }，
@@ -68,7 +70,20 @@ export default function SubmissionReview({
   const [loading, setLoading] = useState(true);
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  const toggleStudent = useCallback((studentId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(studentId)) {
+        next.delete(studentId);
+      } else {
+        next.add(studentId);
+      }
+      return next;
+    });
+  }, []);
 
   const fetchSubmissions = useCallback(async () => {
     const token = getToken();
@@ -107,6 +122,7 @@ export default function SubmissionReview({
     if (taskId) {
       setTaskFilter(taskId);
       setExpandedCode(null);
+      setExpandedIds(new Set());
     }
   }, [taskId]);
 
@@ -219,11 +235,12 @@ export default function SubmissionReview({
       )}
 
       {/* Bug3-scores: 每学生总得分概览（单次 GET 聚合，无 N+1）—— taskId 锁定态隐藏 */}
+      {/* T6-scores: 默认仅总分，按行展开看该生各任务明细（任务多时不横向撑爆） */}
       {!taskId && (
         <div className="space-y-2">
           <p className="text-xs text-[#999999]">
             总得分概览（每任务满分 100 · 总分=各任务得分之和 · 平均分=总分/已布置）
-            {overviewOnly && ' · 明细审阅请前往「任务管理」点击任务展开'}
+            {overviewOnly && ' · 点击行末展开查看该生各任务得分'}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm" role="table" aria-label="学生总得分概览">
@@ -234,53 +251,150 @@ export default function SubmissionReview({
                   <th className="px-3 py-2 text-center font-medium text-[#999999]">已布置</th>
                   <th className="px-3 py-2 text-center font-medium text-[#999999]">已提交</th>
                   <th className="px-3 py-2 text-center font-medium text-[#999999]">参与率</th>
-                  {taskOptions.map((t) => (
-                    <th
-                      key={t.id}
-                      className="max-w-[140px] truncate px-3 py-2 text-center font-medium text-[#999999]"
-                      title={t.title}
-                    >
-                      {onJumpToTask ? (
-                        <button
-                          type="button"
-                          onClick={() => onJumpToTask(t.id)}
-                          className="underline decoration-dotted underline-offset-2 hover:text-black"
-                          title={`前往任务管理审阅「${t.title}」`}
-                        >
-                          {t.title}
-                        </button>
-                      ) : (
-                        t.title
-                      )}
-                    </th>
-                  ))}
                   <th className="px-3 py-2 text-center font-medium text-[#999999]">总分</th>
                   <th className="px-3 py-2 text-center font-medium text-[#999999]">平均分</th>
+                  <th className="px-3 py-2 text-center font-medium text-[#999999]">详情</th>
                 </tr>
               </thead>
               <tbody>
-                {overviewRows.map((r) => (
-                  <tr
-                    key={r.student.studentId}
-                    className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]"
-                  >
-                    <td className="px-3 py-2 font-mono text-black">{r.student.studentId}</td>
-                    <td className="px-3 py-2 text-black">{r.student.studentName}</td>
-                    <td className="px-3 py-2 text-center text-black">{r.assigned}</td>
-                    <td className="px-3 py-2 text-center text-black">{r.submittedCount}</td>
-                    <td className="px-3 py-2 text-center text-black">{r.rateText}</td>
-                    {r.perTask.map((v, i) => (
-                      <td
-                        key={`${r.student.studentId}::${taskOptions[i]?.id ?? i}`}
-                        className="px-3 py-2 text-center text-black"
-                      >
-                        {v}
-                      </td>
-                    ))}
-                    <td className="px-3 py-2 text-center font-semibold text-black">{r.total}</td>
-                    <td className="px-3 py-2 text-center text-black">{r.avgText}</td>
-                  </tr>
-                ))}
+                {overviewRows.map((r) => {
+                  const expanded = expandedIds.has(r.student.studentId);
+                  const byId = new Map(r.student.tasks.map((t) => [t.taskId, t]));
+                  return (
+                    <Fragment key={r.student.studentId}>
+                      <tr className="border-b border-[#dddddd]/50 hover:bg-[#f7f7f7]">
+                        <td className="px-3 py-2 font-mono text-black">{r.student.studentId}</td>
+                        <td className="px-3 py-2 text-black">{r.student.studentName}</td>
+                        <td className="px-3 py-2 text-center text-black">{r.assigned}</td>
+                        <td className="px-3 py-2 text-center text-black">{r.submittedCount}</td>
+                        <td className="px-3 py-2 text-center text-black">{r.rateText}</td>
+                        <td className="px-3 py-2 text-center font-semibold text-black">
+                          {r.total}
+                        </td>
+                        <td className="px-3 py-2 text-center text-black">{r.avgText}</td>
+                        <td className="px-3 py-2 text-center">
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => toggleStudent(r.student.studentId)}
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? '收起' : '展开'} ${r.student.studentName} 的各任务得分`}
+                          >
+                            <ChevronDown
+                              className={`size-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                            />
+                            {expanded ? '收起' : '展开'}
+                          </Button>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr className="border-b border-[#dddddd]/50 bg-[#fafafa]">
+                          <td colSpan={8} className="px-3 py-2">
+                            <ul
+                              className="space-y-2"
+                              aria-label={`${r.student.studentName} 各任务得分`}
+                            >
+                              {taskOptions.map((opt, i) => {
+                                const t = byId.get(opt.id);
+                                const v = r.perTask[i] ?? 0;
+                                const meta = t ? STATUS_META[t.status] : STATUS_META.not_started;
+                                const rowKey = `${r.student.studentId}::${opt.id}`;
+                                const codeKey = rowKey;
+                                return (
+                                  <li
+                                    key={rowKey}
+                                    className="flex flex-wrap items-center gap-2 rounded-none border border-[#dddddd] bg-white px-3 py-2"
+                                  >
+                                    <span
+                                      className="min-w-0 flex-1 truncate text-sm text-black"
+                                      title={opt.title}
+                                    >
+                                      {opt.title}
+                                    </span>
+                                    <span
+                                      className={`inline-flex items-center px-2 py-0.5 text-xs font-medium ${
+                                        t?.submitted
+                                          ? 'bg-black text-white'
+                                          : 'border border-black/30 text-black'
+                                      }`}
+                                    >
+                                      {v} 分
+                                    </span>
+                                    <span
+                                      className={`inline-flex items-center px-2 py-0.5 text-xs font-medium ${meta.className}`}
+                                    >
+                                      {meta.label}
+                                    </span>
+                                    {t && (
+                                      <span className="text-xs text-[#999999]">
+                                        {t.passed}/{t.totalCheckpoints} 关 · {t.attempts} 次尝试
+                                      </span>
+                                    )}
+                                    {onJumpToTask && (
+                                      <Button
+                                        variant="ghost"
+                                        size="xs"
+                                        onClick={() => onJumpToTask(opt.id)}
+                                        aria-label={`跳转审阅 ${opt.title}`}
+                                      >
+                                        跳转任务审阅
+                                      </Button>
+                                    )}
+                                    {t?.lastCode && (
+                                      <Button
+                                        variant="ghost"
+                                        size="xs"
+                                        onClick={() =>
+                                          setExpandedCode(expandedCode === codeKey ? null : codeKey)
+                                        }
+                                        aria-label={`查看 ${r.student.studentName} 的代码快照`}
+                                      >
+                                        <Eye className="size-3 mr-1" />
+                                        代码
+                                      </Button>
+                                    )}
+                                    {t &&
+                                      (t.status !== 'not_started' ||
+                                        t.attempts > 0 ||
+                                        t.submitted) && (
+                                        <Button
+                                          variant="ghost"
+                                          size="xs"
+                                          disabled={rejecting === rowKey}
+                                          onClick={() =>
+                                            handleReject(
+                                              r.student.studentId,
+                                              r.student.studentName,
+                                              t
+                                            )
+                                          }
+                                          aria-label={`打回 ${r.student.studentName} 的 ${t.taskTitle}`}
+                                        >
+                                          <RotateCcw className="size-3 mr-1" />
+                                          {rejecting === rowKey ? '打回中...' : '打回重做'}
+                                        </Button>
+                                      )}
+                                    {expandedCode === codeKey && t?.lastCode && (
+                                      <pre className="mt-1 max-h-64 w-full overflow-auto whitespace-pre-wrap break-words rounded-none border border-[#dddddd] bg-[#f7f7f7] p-3 font-mono text-xs text-black">
+                                        {t.lastCode}
+                                        {t.lastCodeAt && (
+                                          <span className="mt-2 block text-[#999999]">
+                                            快照时间：
+                                            {new Date(t.lastCodeAt).toLocaleString('zh-CN')}
+                                          </span>
+                                        )}
+                                      </pre>
+                                    )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
