@@ -157,6 +157,12 @@ export default function ClassDetailPage() {
   // Student data
   const [studentAssignments, setStudentAssignments] = useState<StudentAssignment[]>([]);
 
+  // T25-enroll: 手动加学生 + 踢出（students tab only）
+  const [enrollInput, setEnrollInput] = useState('');
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollMsg, setEnrollMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [kickingId, setKickingId] = useState<string | null>(null);
+
   const [deleting, setDeleting] = useState(false);
 
   // Fetch class info (both roles) - 学生即使无任务也应能看到已加入的班级
@@ -321,6 +327,61 @@ export default function ClassDetailPage() {
       fetchAssignments();
     } finally {
       setDeletingAssignId(null);
+    }
+  };
+
+  // T25-enroll: 手动加学生（按学号）
+  const handleEnroll = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const studentId = enrollInput.trim();
+    if (!studentId) return;
+    setEnrolling(true);
+    setEnrollMsg(null);
+    try {
+      const res = await fetch(`/api/classes/${classId}/enrollments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ studentId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setEnrollMsg({ type: 'ok', text: `已添加 ${data.student?.name ?? studentId}` });
+        setEnrollInput('');
+        fetchStudents();
+        fetchClass();
+      } else {
+        setEnrollMsg({ type: 'err', text: data.error ?? `添加失败 (${res.status})` });
+      }
+    } catch {
+      setEnrollMsg({ type: 'err', text: '网络错误，请重试' });
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
+  // T25-enroll: 踢出学生
+  const handleKick = async (s: Student) => {
+    if (!confirm(`确定将 ${s.name} 移出本班？`)) return;
+    setKickingId(s.id);
+    setEnrollMsg(null);
+    try {
+      const res = await fetch(`/api/classes/${classId}/enrollments`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ studentId: s.id }),
+      });
+      if (res.ok) {
+        setEnrollMsg({ type: 'ok', text: `已将 ${s.name} 移出本班` });
+        fetchStudents();
+        fetchClass();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setEnrollMsg({ type: 'err', text: err.error ?? `移出失败 (${res.status})` });
+      }
+    } catch {
+      setEnrollMsg({ type: 'err', text: '网络错误，请重试' });
+    } finally {
+      setKickingId(null);
     }
   };
 
@@ -535,7 +596,7 @@ export default function ClassDetailPage() {
                                   </p>
                                   <div className="flex items-center gap-2 shrink-0">
                                     <Link
-                                      href={`/tasks/${a.taskId}?classId=${classId}`}
+                                      href={`/tasks/${a.taskId}?classId=${classId}&preview=1`}
                                       className="text-xs text-black underline decoration-dotted underline-offset-2 hover:text-black/70"
                                     >
                                       教师预览 →
@@ -629,14 +690,44 @@ export default function ClassDetailPage() {
                 <CardTitle className="text-base">学生名单 ({students.length})</CardTitle>
               </CardHeader>
               <CardContent>
+                {/* T25-enroll: 手动加学生表单 */}
+                <form onSubmit={handleEnroll} className="mb-3 flex items-end gap-2">
+                  <div className="flex-1">
+                    <label
+                      htmlFor="enroll-student-id"
+                      className="mb-1 block text-xs font-medium text-[#999999]"
+                    >
+                      学号
+                    </label>
+                    <input
+                      id="enroll-student-id"
+                      type="text"
+                      value={enrollInput}
+                      onChange={(e) => setEnrollInput(e.target.value)}
+                      placeholder="输入学生学号手动添加"
+                      className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 font-mono text-sm text-black placeholder:text-[#666666] placeholder:font-sans outline-none focus:border-black focus:ring-2 focus:ring-black/50"
+                    />
+                  </div>
+                  <Button type="submit" disabled={enrolling || !enrollInput.trim()} size="sm">
+                    {enrolling ? '添加中...' : '添加'}
+                  </Button>
+                </form>
+                {enrollMsg && (
+                  <p
+                    className="mb-2 text-sm text-black"
+                    role={enrollMsg.type === 'ok' ? 'status' : 'alert'}
+                  >
+                    {enrollMsg.text}
+                  </p>
+                )}
+                <p className="mb-3 text-xs text-[#999999]">
+                  将邀请码 <span className="font-mono font-semibold">{cls.code}</span>{' '}
+                  分享给学生，或上方输入学号手动添加
+                </p>
                 {students.length === 0 ? (
                   <div className="py-8 text-center">
                     <Users className="size-8 text-[#999999]/30 mx-auto mb-3" />
                     <p className="text-sm text-[#666666]">暂无学生加入</p>
-                    <p className="text-xs text-[#999999]/70 mt-1">
-                      将邀请码 <span className="font-mono font-semibold">{cls.code}</span>{' '}
-                      分享给学生
-                    </p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -648,6 +739,7 @@ export default function ClassDetailPage() {
                           <th className="text-left px-3 py-2 font-medium text-[#999999]">
                             加入时间
                           </th>
+                          <th className="text-right px-3 py-2 font-medium text-[#999999]">操作</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -660,6 +752,17 @@ export default function ClassDetailPage() {
                             <td className="px-3 py-2 text-black">{s.name}</td>
                             <td className="px-3 py-2 text-[#999999]">
                               {new Date(s.joinedAt).toLocaleString('zh-CN')}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label={`将 ${s.name} 移出本班`}
+                                disabled={kickingId === s.id}
+                                onClick={() => handleKick(s)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
                             </td>
                           </tr>
                         ))}
