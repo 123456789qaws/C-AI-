@@ -119,6 +119,117 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 /**
+ * PATCH /api/tasks/[id] — 任务模板轻量编辑（仅 title / intro / checkpointMode）
+ * Author-only (or ADMIN). tasks/*.json is truth — revalidate full doc via
+ * TaskSchema, rewrite file + prisma mirror. Checkpoints untouched.
+ */
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = requireTeacher(req);
+  if (!user)
+    return NextResponse.json({ error: 'Forbidden: TEACHER or ADMIN required' }, { status: 403 });
+
+  const { id } = await params;
+  const taskId = id.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(taskId)) {
+    return NextResponse.json({ error: 'Invalid task id' }, { status: 400 });
+  }
+
+  let current;
+  try {
+    current = await loadTask(taskId);
+  } catch {
+    return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+  }
+
+  const isAdmin = user.role === 'ADMIN';
+  const authorId = current.authorId ?? null;
+  if (!isAdmin && authorId !== null && authorId !== user.id) {
+    return NextResponse.json({ error: 'Forbidden: not the task author' }, { status: 403 });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
+  }
+  const patch = body as Record<string, unknown>;
+  const allowed = new Set(['title', 'intro', 'checkpointMode']);
+  for (const k of Object.keys(patch)) {
+    if (!allowed.has(k)) {
+      return NextResponse.json({ error: `Field not editable: ${k}` }, { status: 400 });
+    }
+  }
+
+  const next: Record<string, unknown> = {
+    ...current,
+    checkpoints: current.checkpoints,
+  };
+  if (patch.title !== undefined) {
+    if (typeof patch.title !== 'string' || patch.title.trim() === '') {
+      return NextResponse.json({ error: '标题不能为空' }, { status: 400 });
+    }
+    next.title = patch.title.trim();
+  }
+  if (patch.intro !== undefined) {
+    if (patch.intro !== null && typeof patch.intro !== 'string') {
+      return NextResponse.json({ error: 'Invalid intro' }, { status: 400 });
+    }
+    const intro = typeof patch.intro === 'string' ? patch.intro.trim() : '';
+    if (intro === '') delete next.intro;
+    else next.intro = intro;
+  }
+  if (patch.checkpointMode !== undefined) {
+    if (patch.checkpointMode !== 'sequential' && patch.checkpointMode !== 'free') {
+      return NextResponse.json({ error: 'Invalid checkpointMode' }, { status: 400 });
+    }
+    next.checkpointMode = patch.checkpointMode;
+  }
+
+  // Full-doc revalidation (template-source contract)
+  const { TaskSchema } = await import('@/lib/checkpoint/schema');
+  const parsed = TaskSchema.safeParse(next);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error: 'Invalid task',
+        message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+      },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const { writeFile } = await import('node:fs/promises');
+    const path = (await import('node:path')).default;
+    const taskPath = path.join(process.cwd(), 'tasks', `${taskId}.json`);
+    if (!path.resolve(taskPath).startsWith(path.resolve(process.cwd(), 'tasks'))) {
+      return NextResponse.json({ error: 'Invalid task id' }, { status: 400 });
+    }
+    await writeFile(taskPath, JSON.stringify(parsed.data, null, 2), 'utf8');
+    try {
+      await prisma.task.updateMany({
+        where: { id: taskId },
+        data: {
+          title: parsed.data.title,
+          intro: parsed.data.intro ?? null,
+          checkpointMode: parsed.data.checkpointMode,
+        },
+      });
+    } catch {
+      // mirror best-effort
+    }
+    return NextResponse.json({ task: parsed.data });
+  } catch (err) {
+    console.error('[tasks PATCH] error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+/**
  * DELETE /api/tasks/[id] — 删除全局任务（作者本人或 ADMIN）
  * Removes tasks/<id>.json + prisma mirror + related TaskAssignment rows.
  * Does NOT delete student CheckpointProgress / logs (audit trail preserved).

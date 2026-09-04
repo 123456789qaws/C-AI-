@@ -6,6 +6,8 @@ import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AssignmentForm } from '@/components/class/AssignmentForm';
+import TaskCreator from '@/components/task/TaskCreator';
+import TaskTemplateManager from '@/components/task/TaskTemplateManager';
 
 /* ============================================================
  * 看板统计口径（Bug3-stats）：
@@ -197,6 +199,8 @@ export default function TeacherDashboard() {
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
   /* —— T39-assign: bump 后 AssignmentForm 重拉 GET /api/tasks（no-store），新任务免刷新可见 —— */
   const [assignTasksKey, setAssignTasksKey] = useState(0);
+  /* —— T7-templates: 侧边栏新建模板折叠态（默认收起，保持导航紧凑） —— */
+  const [templateCreatorOpen, setTemplateCreatorOpen] = useState(false);
 
   /* —— Step 1: 鉴权 —— */
   useEffect(() => {
@@ -560,7 +564,7 @@ export default function TeacherDashboard() {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white">
       {/* 左侧导航 */}
-      <aside className="flex-shrink-0 w-64 border-r border-[#dddddd] bg-[#f7f7f7] hidden lg:block">
+      <aside className="flex-shrink-0 w-72 border-r border-[#dddddd] bg-[#f7f7f7] hidden lg:flex lg:flex-col lg:overflow-y-auto">
         <nav className="p-4 space-y-1" aria-label="教师看板导航">
           <div className="px-3 py-2 text-xs font-medium text-[#999999] uppercase tracking-wider">
             教师看板
@@ -636,6 +640,34 @@ export default function TeacherDashboard() {
             数据分析
           </a>
         </nav>
+        {/* ====== T7-templates: 侧边栏任务管理（模板查看/预览/编辑/删除 + 新建） ====== */}
+        <section id="tasks" aria-labelledby="sidebar-tasks-title" className="p-4 pt-0 space-y-2">
+          <h2
+            id="sidebar-tasks-title"
+            className="px-3 py-2 text-xs font-medium text-[#999999] uppercase tracking-wider"
+          >
+            任务管理
+          </h2>
+          <TaskTemplateManager
+            refreshKey={assignTasksKey}
+            onMutated={() => setAssignTasksKey((k) => k + 1)}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            aria-expanded={templateCreatorOpen}
+            aria-controls="sidebar-task-creator"
+            onClick={() => setTemplateCreatorOpen((v) => !v)}
+            className="w-full rounded-none"
+          >
+            {templateCreatorOpen ? '收起新建模板' : '新建任务模板'}
+          </Button>
+          {templateCreatorOpen && (
+            <div id="sidebar-task-creator">
+              <TaskCreator onCreated={() => setAssignTasksKey((k) => k + 1)} />
+            </div>
+          )}
+        </section>
       </aside>
 
       {/* 主内容区 */}
