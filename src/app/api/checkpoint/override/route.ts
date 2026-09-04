@@ -29,8 +29,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  // 只允许 TEACHER / TA
-  if (payload.role !== 'TEACHER' && payload.role !== 'TA') {
+  // 只允许 TEACHER / TA / ADMIN（T1-preview: 教师预览一键通过复用本路由）
+  if (payload.role !== 'TEACHER' && payload.role !== 'TA' && payload.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 

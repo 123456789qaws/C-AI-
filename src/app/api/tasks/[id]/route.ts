@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const isTeacher = user.role === 'TEACHER' || user.role === 'ADMIN' || user.role === 'TA';
 
-  // Full unlock for teacher view
+  // Full unlock for teacher view (T1-preview: 与学生同构，便于预览真实页面)
   if (isTeacher) {
     const allUnlockRegions = task.checkpoints.map((c) => c.unlock.editorRegion);
     return NextResponse.json({
@@ -35,6 +35,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       fullUnlock: true,
       allUnlockRegions,
       checkpoints: task.checkpoints.map((c) => ({ ...c, unlocked: true })),
+      checkpointMode: task.checkpointMode,
+      progress: {},
+      unlockStates: task.checkpoints.map((c) => ({
+        checkpointId: c.id,
+        unlocked: true,
+        passed: false,
+      })),
+      assignments: [],
+      submitted: false,
     });
   }
 

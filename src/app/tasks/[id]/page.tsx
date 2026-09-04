@@ -71,6 +71,10 @@ export default function StudentTaskPage() {
   const { user } = useAuth();
   const taskId = params.id as string;
   const classId = searchParams.get('classId');
+  // T1-preview: 教师从班级任务管理经 ?classId=&preview=1 进入预览模式
+  const previewMode = searchParams.get('preview') === '1';
+  const isPreviewTeacher =
+    previewMode && (user?.role === 'TEACHER' || user?.role === 'TA' || user?.role === 'ADMIN');
 
   const [taskData, setTaskData] = useState<TaskApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,7 +112,7 @@ export default function StudentTaskPage() {
 
   if (loading) {
     return (
-      <AuthGuard roles={['STUDENT']}>
+      <AuthGuard roles={['STUDENT', 'TEACHER', 'TA', 'ADMIN']}>
         <div className="flex min-h-[50vh] items-center justify-center">
           <p className="text-sm text-muted-foreground">加载任务中...</p>
         </div>
@@ -117,7 +121,7 @@ export default function StudentTaskPage() {
   }
 
   return (
-    <AuthGuard roles={['STUDENT']}>
+    <AuthGuard roles={['STUDENT', 'TEACHER', 'TA', 'ADMIN']}>
       <div className="flex flex-col h-full bg-background">
         {/* Header bar */}
         <div className="flex items-center gap-3 border-b border-border px-4 py-2 bg-card">
@@ -143,6 +147,15 @@ export default function StudentTaskPage() {
           </div>
           {user && <span className="text-xs text-muted-foreground">{user.name}</span>}
         </div>
+        {/* T1-preview: 教师预览横幅（学生视图无此条） */}
+        {isPreviewTeacher && (
+          <div
+            className="rounded-none border-b border-black/20 bg-neutral-100 px-4 py-1.5 text-xs text-black"
+            role="status"
+          >
+            教师预览·模拟不计入统计 — 所见即学生真实页面，模拟验证与一键通过仅影响本地预览态
+          </div>
+        )}
 
         {/* IDE workspace */}
         <div className="flex-1 min-h-0 overflow-hidden">
@@ -153,6 +166,7 @@ export default function StudentTaskPage() {
             checkpointMode={taskData?.checkpointMode ?? 'sequential'}
             fullUnlock={taskData?.fullUnlock ?? false}
             submittedInitial={taskData?.submitted ?? false}
+            previewMode={previewMode}
           />
         </div>
       </div>

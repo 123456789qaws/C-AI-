@@ -41,6 +41,12 @@ const verifyBodySchema = z.object({
   studentAnswer: z.string().max(MAX_ANSWER_SIZE).optional(),
   /** 起始模板代码（可选）：提供后锁定行必须与模板一致（严格硬锁） */
   baseline: z.string().max(MAX_CODE_SIZE).optional(),
+  /**
+   * T1-preview 教师模拟：教师走真实判题漏斗做测试，但后端不写任何
+   * CheckpointProgress / AiInteractionLog（零统计污染；stats 按在班学生过滤，
+   * 即使误写教师行也会被排除——此处直接不写）。
+   */
+  teacherPreview: z.boolean().optional(),
 });
 
 /** Bearer 解析（与 /api/auth/me 一致） */
@@ -156,6 +162,8 @@ export async function POST(req: Request) {
   const isTeacherCaller = isPrivilegedRole(callerRole);
 
   const { taskId, checkpointId } = input;
+  // T1-preview: 教师模拟开关（JWT role 二次校验后的教师调用才有效）
+  const wantsSimulate = input.teacherPreview === true;
 
   // 1) 加载关卡定义（tasks 真源）
   let task: Task;
@@ -180,7 +188,8 @@ export async function POST(req: Request) {
   const ctx = { studentId, taskId, checkpointId, sessionId };
 
   // 2) AI 复核限流（含 ai_socratic gate 才消耗额度，第 6 次起 429）
-  if (checkpoint.gates.some((g) => g.type === 'ai_socratic')) {
+  // T1-preview: 教师模拟不占学生限流额度，直接跳过
+  if (!isTeacherCaller && checkpoint.gates.some((g) => g.type === 'ai_socratic')) {
     const rate = checkRateLimit(studentId, checkpointId);
     if (!rate.allowed) {
       return NextResponse.json(
@@ -208,23 +217,26 @@ export async function POST(req: Request) {
         : task.checkpoints.slice(0, currentIndex + 1).map((c) => c.unlock.editorRegion);
     const lock = checkEditorLock(code, unlockedRegions, input.baseline);
     if (lock.tampered) {
-      const codeBefore = await previousCode(studentId, taskId, checkpointId);
-      await logInteraction({
-        studentId: ctx.studentId,
-        taskId: ctx.taskId,
-        checkpointId: ctx.checkpointId,
-        sessionId: ctx.sessionId,
-        role: 'system',
-        promptText: `硬锁校验：行 ${lock.violations.join(', ')} 越权编辑（允许区间 ${lock.regions
-          .map(([s, e]) => `${s}-${e}`)
-          .join(' / ')}）`,
-        gateResult: 'escalated',
-        gateType: 'lock',
-        model: 'lock-check',
-        codeBefore,
-        codeAfter: code,
-      });
-      await upsertProgress(ctx, false);
+      // T1-preview: 教师调用（预览/模拟）不写任何日志与进度，零统计污染
+      if (!isTeacherCaller) {
+        const codeBefore = await previousCode(studentId, taskId, checkpointId);
+        await logInteraction({
+          studentId: ctx.studentId,
+          taskId: ctx.taskId,
+          checkpointId: ctx.checkpointId,
+          sessionId: ctx.sessionId,
+          role: 'system',
+          promptText: `硬锁校验：行 ${lock.violations.join(', ')} 越权编辑（允许区间 ${lock.regions
+            .map(([s, e]) => `${s}-${e}`)
+            .join(' / ')}）`,
+          gateResult: 'escalated',
+          gateType: 'lock',
+          model: 'lock-check',
+          codeBefore,
+          codeAfter: code,
+        });
+        await upsertProgress(ctx, false);
+      }
 
       return NextResponse.json(
         {
@@ -239,7 +251,48 @@ export async function POST(req: Request) {
     }
   }
 
-  // 3.5) 教师全解锁预览：教师/TA/ADMIN 直接视为通过，返回全部解锁区间（不落进度）
+  // 3.5) T1-preview 教师模拟：真实走两级漏斗求值，但不写任何日志与进度
+  // （内存结果 only；stats/submissions 按在班学生过滤，双保险零污染）
+  if (isTeacherCaller && wantsSimulate) {
+    let simResult: EvaluateResult;
+    try {
+      simResult = await evaluateCheckpoint(checkpoint, {
+        code,
+        studentAnswer: input.studentAnswer ?? '',
+      });
+    } catch (err) {
+      console.error(
+        '[verify] teacher simulate evaluate failed:',
+        redactSecrets(err instanceof Error ? err.message : String(err))
+      );
+      return NextResponse.json({ error: 'evaluate_failed' }, { status: 500 });
+    }
+    const simNext =
+      simResult.passed && currentIndex >= 0 ? task.checkpoints[currentIndex + 1] : undefined;
+    return NextResponse.json({
+      passed: simResult.passed,
+      score: Number(simResult.score.toFixed(3)),
+      escalated: simResult.escalated,
+      reason: summarizeReason(simResult),
+      perGate: simResult.perGate.map((g) => ({
+        type: g.type,
+        weight: g.weight,
+        passed: g.passed,
+        escalated: g.escalated,
+        confidence: g.confidence,
+        reply: g.reply,
+        reason: g.reason,
+        error: g.error,
+      })),
+      ...(simResult.testHint !== undefined ? { testHint: simResult.testHint } : {}),
+      nextCheckpointId: simNext?.id ?? null,
+      unlockRegions: simNext ? [simNext.unlock.editorRegion] : [],
+      attempts: null,
+      teacherPreview: true,
+    });
+  }
+
+  // 3.6) 教师全解锁预览：教师/TA/ADMIN 直接视为通过，返回全部解锁区间（不落进度）
   if (isTeacherCaller) {
     const allUnlockRegions = task.checkpoints.map((c) => c.unlock.editorRegion);
     return NextResponse.json({
