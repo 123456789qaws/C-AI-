@@ -74,6 +74,15 @@ function formatTime(iso: string) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** T3-deadline: Date -> datetime-local input value (local tz, YYYY-MM-DDTHH:mm) */
+function toLocalInputValue(deadline: string | null): string {
+  if (!deadline) return '';
+  const d = new Date(deadline);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function gateBadge(result: string) {
   switch (result) {
     case 'passed':
@@ -199,6 +208,10 @@ export default function TeacherDashboard() {
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
   /* —— T39-assign: bump 后 AssignmentForm 重拉 GET /api/tasks（no-store），新任务免刷新可见 —— */
   const [assignTasksKey, setAssignTasksKey] = useState(0);
+  /* —— T3-deadline: 看板已布置行改期态（tasks-tab 同款 inline 改期，constructive 无 confirm） —— */
+  const [editingDeadlineId, setEditingDeadlineId] = useState<string | null>(null);
+  const [deadlineDraft, setDeadlineDraft] = useState('');
+  const [savingDeadlineId, setSavingDeadlineId] = useState<string | null>(null);
   /* —— T7-templates: 侧边栏新建模板折叠态（默认收起，保持导航紧凑） —— */
   const [templateCreatorOpen, setTemplateCreatorOpen] = useState(false);
   /* —— T1-side: 侧边栏导航 active 态 + 任务模板面板锚点滚动/聚焦 —— */
@@ -420,6 +433,57 @@ export default function TeacherDashboard() {
       }
     },
     []
+  );
+
+  /* —— T3-deadline: 看板改期已布置任务（PATCH {id, deadline: ISO|null}，空=无截止） —— */
+  const handleSaveDeadline = useCallback(
+    async (a: AssignmentItem, rawOverride?: string) => {
+      const trimmed = (rawOverride ?? deadlineDraft).trim();
+      let next: string | null;
+      if (!trimmed) {
+        next = null;
+      } else {
+        const t = new Date(trimmed).getTime();
+        if (Number.isNaN(t)) {
+          setAssignMsg('日期格式无效，请重新选择');
+          return;
+        }
+        next = new Date(trimmed).toISOString();
+      }
+      setSavingDeadlineId(a.id);
+      const prev = assignments;
+      setAssignments((list) => list.map((x) => (x.id === a.id ? { ...x, deadline: next } : x)));
+      try {
+        const res = await fetch('/api/assignments', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ id: a.id, deadline: next }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setAssignMsg(payload.error ?? `改期失败 (${res.status})`);
+          setAssignments(prev);
+        } else {
+          const serverDeadline: string | null =
+            (payload.assignment?.deadline as string | null | undefined) ?? next;
+          setAssignments((list) =>
+            list.map((x) => (x.id === a.id ? { ...x, deadline: serverDeadline } : x))
+          );
+          setEditingDeadlineId(null);
+          setAssignMsg(
+            serverDeadline
+              ? `已改期至 ${new Date(serverDeadline).toLocaleDateString('zh-CN')}`
+              : '已清除截止时间'
+          );
+        }
+      } catch {
+        setAssignMsg('网络错误，请重试');
+        setAssignments(prev);
+      } finally {
+        setSavingDeadlineId(null);
+      }
+    },
+    [assignments, deadlineDraft]
   );
 
   /* —— 计算热力图 —— */
@@ -982,7 +1046,7 @@ export default function TeacherDashboard() {
                       assignments.map((a) => (
                         <div
                           key={a.id}
-                          className="flex items-center justify-between rounded-none border border-[#dddddd]/50 px-3 py-2"
+                          className="flex items-center justify-between rounded-none border border-[#dddddd]/50 px-3 py-2 gap-2"
                         >
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium text-black truncate">
@@ -990,12 +1054,66 @@ export default function TeacherDashboard() {
                             </div>
                             <div className="text-xs text-[#999999] truncate">
                               {a.class?.name ?? a.classId}
-                              {a.deadline && (
+                              {a.deadline ? (
                                 <span className="ml-2">
                                   截止: {new Date(a.deadline).toLocaleDateString('zh-CN')}
                                 </span>
+                              ) : (
+                                <span className="ml-2">无截止</span>
                               )}
                             </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {editingDeadlineId === a.id ? (
+                              <>
+                                <input
+                                  type="datetime-local"
+                                  aria-label={`修改 ${a.task?.title ?? a.taskId} 的截止时间，留空为无截止`}
+                                  value={deadlineDraft}
+                                  onChange={(e) => setDeadlineDraft(e.target.value)}
+                                  className="w-44 rounded-none border border-[#dddddd] bg-white px-1.5 py-0.5 text-xs text-black outline-none focus:border-black"
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="xs"
+                                  disabled={savingDeadlineId === a.id}
+                                  onClick={() => handleSaveDeadline(a)}
+                                >
+                                  {savingDeadlineId === a.id ? '保存中...' : '保存'}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="xs"
+                                  disabled={savingDeadlineId === a.id}
+                                  onClick={() => {
+                                    setDeadlineDraft('');
+                                    handleSaveDeadline(a, '');
+                                  }}
+                                >
+                                  无截止
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="xs"
+                                  onClick={() => setEditingDeadlineId(null)}
+                                >
+                                  取消
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                aria-label={`改期 ${a.task?.title ?? a.taskId}`}
+                                onClick={() => {
+                                  setAssignMsg(null);
+                                  setEditingDeadlineId(a.id);
+                                  setDeadlineDraft(toLocalInputValue(a.deadline));
+                                }}
+                              >
+                                改期
+                              </Button>
+                            )}
                           </div>
                         </div>
                       ))

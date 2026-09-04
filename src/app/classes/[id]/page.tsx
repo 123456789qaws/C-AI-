@@ -79,6 +79,15 @@ function deadlineCountdown(deadline: string): { text: string; urgent: boolean; e
   return { text: `${hours}小时${minutes}分钟`, urgent: true, expired: false };
 }
 
+/** T3-deadline: Date -> datetime-local input value (local tz, YYYY-MM-DDTHH:mm) */
+function toLocalInputValue(deadline: string | null): string {
+  if (!deadline) return '';
+  const d = new Date(deadline);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /* ============================================================
  * Tab Button
  * ============================================================ */
@@ -153,6 +162,10 @@ export default function ClassDetailPage() {
   const [assignLoading, setAssignLoading] = useState(false);
   const [deletingAssignId, setDeletingAssignId] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
+  // T3-deadline: per-row reschedule state (tasks tab only)
+  const [editingDeadlineId, setEditingDeadlineId] = useState<string | null>(null);
+  const [deadlineDraft, setDeadlineDraft] = useState('');
+  const [savingDeadlineId, setSavingDeadlineId] = useState<string | null>(null);
 
   // Student data
   const [studentAssignments, setStudentAssignments] = useState<StudentAssignment[]>([]);
@@ -328,6 +341,55 @@ export default function ClassDetailPage() {
       fetchAssignments();
     } finally {
       setDeletingAssignId(null);
+    }
+  };
+
+  // T3-deadline: 改期已布置任务 — PATCH {id, deadline: ISO|null}，空输入=清除为无截止
+  const handleSaveDeadline = async (a: Assignment, rawOverride?: string) => {
+    setAssignError(null);
+    let next: string | null;
+    const trimmed = (rawOverride ?? deadlineDraft).trim();
+    if (!trimmed) {
+      next = null;
+    } else {
+      const t = new Date(trimmed).getTime();
+      if (Number.isNaN(t)) {
+        setAssignError('日期格式无效，请重新选择');
+        return;
+      }
+      next = new Date(trimmed).toISOString();
+    }
+    setSavingDeadlineId(a.id);
+    // Optimistic update; rollback via refetch on failure
+    const prev = assignments;
+    setAssignments((list) => list.map((x) => (x.id === a.id ? { ...x, deadline: next } : x)));
+    try {
+      const res = await fetch('/api/assignments', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ id: a.id, deadline: next }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAssignError(err.error ?? `改期失败 (${res.status})`);
+        setAssignments(prev);
+        fetchAssignments();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        const serverDeadline: string | null =
+          (data.assignment?.deadline as string | null | undefined) ?? next;
+        setAssignments((list) =>
+          list.map((x) => (x.id === a.id ? { ...x, deadline: serverDeadline } : x))
+        );
+        setEditingDeadlineId(null);
+        fetchAssignments();
+      }
+    } catch {
+      setAssignError('网络错误，请重试');
+      setAssignments(prev);
+      fetchAssignments();
+    } finally {
+      setSavingDeadlineId(null);
     }
   };
 
@@ -559,18 +621,86 @@ export default function ClassDetailPage() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
-                                {cd && (
+                                {editingDeadlineId === a.id ? (
                                   <span
-                                    className={`text-xs font-medium ${
-                                      cd.expired
-                                        ? 'text-[#999999]'
-                                        : cd.urgent
-                                          ? 'text-black'
-                                          : 'text-black/60'
-                                    }`}
+                                    className="flex items-center gap-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
                                   >
-                                    {cd.expired ? '已截止' : cd.text}
+                                    <input
+                                      type="datetime-local"
+                                      aria-label={`修改任务 ${title} 的截止时间，留空为无截止`}
+                                      value={deadlineDraft}
+                                      onChange={(e) => setDeadlineDraft(e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-44 rounded-none border border-[#dddddd] bg-white px-1.5 py-0.5 text-xs text-black outline-none focus:border-black"
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      size="xs"
+                                      disabled={savingDeadlineId === a.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveDeadline(a);
+                                      }}
+                                    >
+                                      {savingDeadlineId === a.id ? '保存中...' : '保存'}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="xs"
+                                      disabled={savingDeadlineId === a.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setDeadlineDraft('');
+                                        // Empty saves as null (无截止) — pass explicit override (state is async)
+                                        handleSaveDeadline(a, '');
+                                      }}
+                                    >
+                                      无截止
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="xs"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingDeadlineId(null);
+                                      }}
+                                    >
+                                      取消
+                                    </Button>
                                   </span>
+                                ) : (
+                                  <>
+                                    {cd ? (
+                                      <span
+                                        className={`text-xs font-medium ${
+                                          cd.expired
+                                            ? 'text-[#999999]'
+                                            : cd.urgent
+                                              ? 'text-black'
+                                              : 'text-black/60'
+                                        }`}
+                                      >
+                                        {cd.expired ? '已截止' : cd.text}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-[#999999]">无截止</span>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="xs"
+                                      aria-label={`改期任务 ${title}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAssignError(null);
+                                        setEditingDeadlineId(a.id);
+                                        setDeadlineDraft(toLocalInputValue(a.deadline));
+                                      }}
+                                    >
+                                      改期
+                                    </Button>
+                                  </>
                                 )}
                                 <ChevronDown
                                   className={`size-3.5 text-[#999999] transition-transform ${

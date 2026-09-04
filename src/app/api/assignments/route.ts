@@ -28,6 +28,18 @@ const deleteBodySchema = z
     message: '需要 id 或 classId+taskId',
   });
 
+const patchBodySchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    classId: z.string().min(1).optional(),
+    taskId: z.string().min(1).optional(),
+    // ISO datetime string or null (clear to no-deadline); past allowed for testing.
+    deadline: z.string().datetime().nullable(),
+  })
+  .refine((v) => v.id || (v.classId && v.taskId), {
+    message: '需要 id 或 classId+taskId',
+  });
+
 /** POST /api/assignments — 教师布置任务 {taskId, classId, deadline?} */
 export async function POST(req: NextRequest) {
   const user = requireTeacher(req);
@@ -303,6 +315,81 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ ok: true, deleted: row.id });
   } catch (err) {
     console.error('[assignments DELETE] error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+/** PATCH /api/assignments — 教师改期已布置任务 {id|classId+taskId, deadline: ISO|null} */
+export async function PATCH(req: NextRequest) {
+  const user = requireTeacher(req);
+  if (!user) {
+    return NextResponse.json({ error: 'Forbidden: TEACHER or ADMIN required' }, { status: 403 });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const parsed = patchBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid input', message: parsed.error.issues.map((i) => i.message).join('; ') },
+      { status: 400 }
+    );
+  }
+
+  // deadline: null clears to 无截止; ISO string must parse to a valid date (past allowed for testing).
+  const { deadline } = parsed.data;
+  let deadlineDate: Date | null = null;
+  if (deadline !== null) {
+    const t = new Date(deadline).getTime();
+    if (Number.isNaN(t)) {
+      return NextResponse.json({ error: 'Invalid deadline' }, { status: 400 });
+    }
+    deadlineDate = new Date(deadline);
+  }
+
+  try {
+    // Resolve the target row first — never trust client-supplied scope alone.
+    const row = parsed.data.id
+      ? await prisma.taskAssignment.findUnique({ where: { id: parsed.data.id } })
+      : await prisma.taskAssignment.findFirst({
+          where: { classId: parsed.data.classId as string, taskId: parsed.data.taskId as string },
+        });
+    if (!row) {
+      return NextResponse.json({ error: 'Assignment not found' }, { status: 404 });
+    }
+
+    const classInfo = await prisma.class.findUnique({
+      where: { id: row.classId },
+      select: { id: true, teacherId: true },
+    });
+    if (!classInfo) {
+      return NextResponse.json({ error: 'Class not found' }, { status: 404 });
+    }
+
+    const isAdmin = user.role === 'ADMIN';
+    if (!isAdmin && classInfo.teacherId !== user.id) {
+      return NextResponse.json({ error: 'Forbidden: not the class teacher' }, { status: 403 });
+    }
+
+    // Single scoped row — never cross-class (batch path uses POST per-class semantics).
+    const assignment = await prisma.taskAssignment.update({
+      where: { id: row.id },
+      data: { deadline: deadlineDate },
+      include: {
+        task: { select: { id: true, title: true } },
+        class: { select: { id: true, name: true, code: true } },
+        teacher: { select: { id: true, name: true } },
+      },
+    });
+
+    return NextResponse.json({ ok: true, assignment });
+  } catch (err) {
+    console.error('[assignments PATCH] error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
