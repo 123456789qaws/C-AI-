@@ -5,6 +5,7 @@ import { ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AssignmentForm } from '@/components/class/AssignmentForm';
 
 /* ============================================================
  * 看板统计口径（Bug3-stats）：
@@ -191,11 +192,11 @@ export default function TeacherDashboard() {
   }
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
   const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
-  const [assignTaskId, setAssignTaskId] = useState('');
-  const [assignClassId, setAssignClassId] = useState('');
-  const [assignDeadline, setAssignDeadline] = useState('');
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
   const [assignLoading, setAssignLoading] = useState(false);
+  /* —— T39-assign: 批量布置结果摘要（已布置 / 已跳过已布置），constructive 操作无 confirm —— */
+  const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  /* —— T39-assign: bump 后 AssignmentForm 重拉 GET /api/tasks（no-store），新任务免刷新可见 —— */
+  const [assignTasksKey, setAssignTasksKey] = useState(0);
 
   /* —— Step 1: 鉴权 —— */
   useEffect(() => {
@@ -354,38 +355,56 @@ export default function TeacherDashboard() {
     }
   }, []);
 
-  /* —— 布置任务 —— */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- scaffolded for future use
-  const handleAssignTask = useCallback(async () => {
-    if (!assignTaskId || !assignClassId) return;
-    setAssignLoading(true);
-    try {
-      const res = await fetch('/api/assignments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
-          taskId: assignTaskId,
-          classId: assignClassId,
-          deadline: assignDeadline ? new Date(assignDeadline).toISOString() : null,
-        }),
-      });
-      if (res.ok) {
-        setAssignTaskId('');
-        setAssignClassId('');
-        setAssignDeadline('');
-        // Refresh assignments
-        const refreshRes = await fetch('/api/assignments', { headers: authHeaders() });
-        if (refreshRes.ok) {
-          const data = await refreshRes.json();
-          setAssignments(data.assignments ?? []);
+  /* —— 布置任务（T39-assign 批量：一个 task × N 个 class，跳过已布置并汇总） —— */
+  const handleAssignTask = useCallback(
+    async (data: {
+      taskId: string;
+      classId: string;
+      classIds?: string[];
+      deadline: string | null;
+    }) => {
+      const classIds = data.classIds && data.classIds.length > 0 ? data.classIds : [data.classId];
+      if (!data.taskId || classIds.length === 0) return;
+      setAssignLoading(true);
+      setAssignMsg(null);
+      try {
+        const res = await fetch('/api/assignments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({
+            taskId: data.taskId,
+            classIds,
+            deadline: data.deadline,
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (res.ok) {
+          const created = typeof payload.created === 'number' ? payload.created : classIds.length;
+          const skipped = typeof payload.skipped === 'number' ? payload.skipped : 0;
+          setAssignMsg(
+            skipped > 0
+              ? `已布置 ${created} 个班级，已跳过${skipped}个已布置`
+              : `已布置 ${created} 个班级`
+          );
+          setAssignTasksKey((k) => k + 1);
+          // Refresh assignments
+          const refreshRes = await fetch('/api/assignments', { headers: authHeaders() });
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            setAssignments(refreshData.assignments ?? []);
+          }
+        } else {
+          setAssignMsg(payload.error ?? `布置失败 (${res.status})`);
         }
+      } catch {
+        console.error('[dashboard] assign task failed');
+        setAssignMsg('网络错误，请重试');
+      } finally {
+        setAssignLoading(false);
       }
-    } catch {
-      console.error('[dashboard] assign task failed');
-    } finally {
-      setAssignLoading(false);
-    }
-  }, [assignTaskId, assignClassId, assignDeadline]);
+    },
+    []
+  );
 
   /* —— 计算热力图 —— */
   const heatData = useMemo(() => {
@@ -855,74 +874,25 @@ export default function TeacherDashboard() {
               任务布置
             </h2>
             <div className="grid gap-4 lg:grid-cols-2">
-              {/* 布置表单 */}
-              <Card>
-                <CardContent className="pt-4">
-                  <div className="space-y-3">
-                    <div>
-                      <label
-                        htmlFor="assign-task"
-                        className="mb-1 block text-xs font-medium text-[#999999]"
-                      >
-                        任务
-                      </label>
-                      <select
-                        id="assign-task"
-                        value={assignTaskId}
-                        onChange={(e) => setAssignTaskId(e.target.value)}
-                        className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-black focus:ring-2 focus:ring-black/50"
-                      >
-                        <option value="">选择任务...</option>
-                        <option value="fib_L2">fib_L2 (递归 / Fibonacci)</option>
-                        <option value="linked_list_reverse">linked_list_reverse (链表反转)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="assign-class"
-                        className="mb-1 block text-xs font-medium text-[#999999]"
-                      >
-                        班级
-                      </label>
-                      <select
-                        id="assign-class"
-                        value={assignClassId}
-                        onChange={(e) => setAssignClassId(e.target.value)}
-                        className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-black focus:ring-2 focus:ring-black/50"
-                      >
-                        <option value="">选择班级...</option>
-                        {classes.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} ({c.code})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="assign-deadline"
-                        className="mb-1 block text-xs font-medium text-[#999999]"
-                      >
-                        截止时间 (可选)
-                      </label>
-                      <input
-                        id="assign-deadline"
-                        type="datetime-local"
-                        value={assignDeadline}
-                        onChange={(e) => setAssignDeadline(e.target.value)}
-                        className="w-full rounded-none border border-[#dddddd] bg-white px-3 py-1.5 text-sm text-black outline-none focus:border-black focus:ring-2 focus:ring-black/50"
-                      />
-                    </div>
-                    <Button
-                      size="sm"
-                      disabled={assignLoading || !assignTaskId || !assignClassId}
-                      onClick={handleAssignTask}
-                    >
-                      {assignLoading ? '布置中...' : '布置任务'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* 布置表单（T39-assign：与班级页共享 AssignmentForm；任务下拉 live-fetch
+                  GET /api/tasks no-store + refreshKey，新任务免刷新可见；multiSelect 多选班级；
+                  collapsible 默认展开，与班级页独立折叠态） */}
+              <div className="space-y-2">
+                <AssignmentForm
+                  classes={classes.map((c) => ({ id: c.id, name: c.name, code: c.code }))}
+                  onSubmit={handleAssignTask}
+                  loading={assignLoading}
+                  refreshKey={assignTasksKey}
+                  collapsible
+                  defaultOpen
+                  multiSelect
+                />
+                {assignMsg && (
+                  <p className="text-xs text-[#666666]" role="status">
+                    {assignMsg}
+                  </p>
+                )}
+              </div>
 
               {/* 已布置任务列表 */}
               <Card>

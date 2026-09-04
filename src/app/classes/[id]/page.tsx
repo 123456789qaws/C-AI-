@@ -276,10 +276,11 @@ export default function ClassDetailPage() {
     ]).finally(() => setLoading(false));
   }, [fetchClass, fetchStudents, fetchAssignments, fetchStudentAssignments]);
 
-  // Create assignment handler
+  // Create assignment handler (single-class; AssignmentForm passes classId, classIds optional)
   const handleCreateAssignment = async (data: {
     taskId: string;
     classId: string;
+    classIds?: string[];
     deadline: string | null;
   }) => {
     setAssignLoading(true);
@@ -498,11 +499,13 @@ export default function ClassDetailPage() {
           {/* ==================== TASKS TAB ==================== */}
           {activeTab === 'tasks' && isTeacher && (
             <div className="space-y-4">
-              {/* Assignment form */}
+              {/* Assignment form (collapsible, default expanded; single-class mode) */}
               <AssignmentForm
                 classes={[{ id: cls.id, name: cls.name, code: cls.code }]}
                 onSubmit={handleCreateAssignment}
                 loading={assignLoading}
+                collapsible
+                defaultOpen
               />
 
               {/* Assignments list */}
