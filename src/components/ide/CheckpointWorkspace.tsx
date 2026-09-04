@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Info,
   Loader2,
   Lock,
@@ -227,6 +228,8 @@ export default function CheckpointWorkspace({
   } | null>(null);
   const [submitted, setSubmitted] = useState(submittedInitial);
   const [submitting, setSubmitting] = useState(false);
+  /** T2-editor: 代码编辑区展开/收缩（默认收起，首屏仅 header + hint；展开挂载全高 Monaco，绝不缩小渲染） */
+  const [editorOpen, setEditorOpen] = useState(false);
   /** 是否有待教师放行的 escalated 关卡 */
   const [hasEscalated, setHasEscalated] = useState(false);
   const toastIdRef = useRef(0);
@@ -806,8 +809,14 @@ export default function CheckpointWorkspace({
             可输入答案并模拟验证（沙箱判题、零落库），一键通过仅推进本地预览
           </div>
         )}
-        {/* ---- Monaco 工作区 ---- */}
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl shadow-sm">
+        {/* ---- Monaco 工作区（T2-editor：默认收起，展开为全高，绝不缩小渲染） ---- */}
+        <Card
+          className={
+            editorOpen
+              ? 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl shadow-sm'
+              : 'flex flex-col overflow-hidden rounded-xl shadow-sm'
+          }
+        >
           <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-5 py-3">
             <CardTitle className="text-base font-semibold">{taskTitle}</CardTitle>
             <div className="flex items-center gap-2">
@@ -823,10 +832,35 @@ export default function CheckpointWorkspace({
                   教师视角 · 全区域可编辑
                 </span>
               )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditorOpen((v) => !v)}
+                aria-expanded={editorOpen}
+                aria-controls="editor-body"
+                className="rounded-none"
+              >
+                <ChevronDown
+                  className={`size-4 transition-transform ${editorOpen ? 'rotate-180' : ''}`}
+                  aria-hidden="true"
+                />
+                {editorOpen ? '收缩' : '展开'}
+              </Button>
             </div>
           </CardHeader>
 
-          {unlockFlash && (
+          {!editorOpen && (
+            <div className="px-5 py-2.5 text-xs text-muted-foreground" role="status">
+              代码编辑区已收起，点击展开
+              {effectiveFullUnlock
+                ? '（全区域可编辑）'
+                : currentCheckpoint
+                  ? `（当前可编辑第 ${currentCheckpoint.unlock.editorRegion[0]}-${currentCheckpoint.unlock.editorRegion[1]} 行）`
+                  : '（全部关卡已通过）'}
+            </div>
+          )}
+
+          {editorOpen && unlockFlash && (
             <div
               key={unlockFlash.nonce}
               className="unlock-flash flex items-center gap-2 border-b border-green-500/30 bg-green-500/8 px-4 py-2 text-sm text-green-600 dark:text-green-400"
@@ -837,15 +871,17 @@ export default function CheckpointWorkspace({
             </div>
           )}
 
-          <CardContent className="flex min-h-0 flex-1 overflow-hidden p-0">
-            <MonacoWorkspace
-              value={code}
-              lockedRegions={lockedRegions}
-              onChange={setCode}
-              isTeacherView={effectiveFullUnlock}
-              onLockViolation={handleLockViolation}
-            />
-          </CardContent>
+          {editorOpen && (
+            <CardContent id="editor-body" className="flex min-h-0 flex-1 overflow-hidden p-0">
+              <MonacoWorkspace
+                value={code}
+                lockedRegions={lockedRegions}
+                onChange={setCode}
+                isTeacherView={effectiveFullUnlock}
+                onLockViolation={handleLockViolation}
+              />
+            </CardContent>
+          )}
         </Card>
 
         {/* ---- 关卡进度 + 引导问题 + 验证 + 提交 ---- */}
