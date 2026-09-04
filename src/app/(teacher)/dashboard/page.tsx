@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -139,6 +140,8 @@ export default function TeacherDashboard() {
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  /* —— 实时活动流折叠状态（默认收起，节省首屏纵向空间） —— */
+  const [activityOpen, setActivityOpen] = useState(false);
   /* —— 看板统计（权威值来自 /api/dashboard/stats，班级去重口径） —— */
   interface DashboardStats {
     totalStudents: number;
@@ -1018,166 +1021,188 @@ export default function TeacherDashboard() {
             </Card>
           </section>
 
-          {/* 三轨道时间线 */}
+          {/* 三轨道时间线（默认收起） */}
           <section id="timeline" aria-labelledby="timeline-title" className="mt-2">
             <div className="flex items-center justify-between mb-4">
-              <h2 id="timeline-title" className="text-lg font-semibold text-foreground">
-                实时活动流
-              </h2>
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block size-2 rounded-full bg-blue-500" />
-                  代码变更
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block size-2 rounded-full bg-purple-500" />
-                  AI 对话
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block size-2 rounded-full bg-green-500" />
-                  关卡判定
+              <div className="flex items-center gap-2">
+                <h2 id="timeline-title" className="text-lg font-semibold text-foreground">
+                  实时活动流
+                </h2>
+                <span className="inline-flex items-center rounded-none bg-black/10 px-2 py-0.5 text-xs font-medium text-black">
+                  {logs.length}
                 </span>
               </div>
-            </div>
-            <Card>
-              <CardContent className="p-0">
-                <div className="divide-y divide-border">
-                  {logs.length === 0 ? (
-                    <div className="py-12 text-center text-sm text-muted-foreground">
-                      暂无日志数据
-                    </div>
-                  ) : (
-                    /* 真实日志渲染：三轨道 */
-                    logs
-                      .slice()
-                      .reverse()
-                      .map((entry) => {
-                        const overrideKey = `${entry.studentId}:${entry.taskId}:${entry.checkpointId}`;
-                        const isOverridden = overridden.has(overrideKey);
-                        const canOverride =
-                          entry.gateResult === 'failed' || entry.gateResult === 'escalated';
-                        const isOverridingThis = overriding === overrideKey;
-
-                        // 判断有哪些轨道内容
-                        const hasCodeDiff = Boolean(entry.codeDiff && entry.codeDiff.trim());
-                        const hasAiDialogue = Boolean(entry.promptText || entry.aiReply);
-                        const hasGateResult = Boolean(entry.gateResult);
-
-                        return (
-                          <div
-                            key={entry.id}
-                            className="p-4 hover:bg-muted/50 transition-colors space-y-2"
-                          >
-                            {/* 行 1: 基础信息 */}
-                            <div className="flex items-center gap-3">
-                              <div className="flex-shrink-0 w-20 text-xs text-muted-foreground font-mono">
-                                {formatTime(entry.ts)}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 text-sm">
-                                  <span className="font-medium text-foreground truncate">
-                                    {entry.studentId}
-                                  </span>
-                                  <span className="text-muted-foreground shrink-0">·</span>
-                                  <span className="text-primary font-medium truncate">
-                                    {entry.taskId}
-                                  </span>
-                                  <span className="text-muted-foreground text-xs">
-                                    {entry.checkpointId}
-                                  </span>
-                                </div>
-                              </div>
-                              {/* 关卡判定 Badge */}
-                              {hasGateResult && (
-                                <span
-                                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${gateBadge(entry.gateResult)}`}
-                                >
-                                  {gateLabel(entry.gateResult)}
-                                </span>
-                              )}
-                              {/* Override 按钮 */}
-                              {canOverride && !isOverridden && (
-                                <Button
-                                  variant="outline"
-                                  size="xs"
-                                  onClick={() =>
-                                    handleOverride(
-                                      entry.studentId,
-                                      entry.taskId,
-                                      entry.checkpointId
-                                    )
-                                  }
-                                  disabled={isOverridingThis}
-                                >
-                                  {isOverridingThis ? '放行中...' : '放行'}
-                                </Button>
-                              )}
-                              {isOverridden && (
-                                <span className="text-xs text-green-600 dark:text-green-400">
-                                  已放行
-                                </span>
-                              )}
-                            </div>
-
-                            {/* 行 2: 三轨道内容 */}
-                            <div className="ml-23 flex flex-wrap gap-2 text-xs">
-                              {hasCodeDiff && (
-                                <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
-                                  <span className="inline-block size-1.5 rounded-full bg-blue-500" />
-                                  代码变更
-                                  {entry.codeDiff!.split('\n').length > 1 &&
-                                    ` (+${entry.codeDiff!.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).length}/-${entry.codeDiff!.split('\n').filter((l) => l.startsWith('-') && !l.startsWith('---')).length})`}
-                                </span>
-                              )}
-                              {hasAiDialogue && (
-                                <span className="inline-flex items-center gap-1 rounded bg-purple-50 px-2 py-0.5 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
-                                  <span className="inline-block size-1.5 rounded-full bg-purple-500" />
-                                  AI 对话
-                                  {entry.gateType && (
-                                    <span className="text-purple-500 dark:text-purple-300">
-                                      ({entry.gateType})
-                                    </span>
-                                  )}
-                                </span>
-                              )}
-                              {hasGateResult && (
-                                <span
-                                  className={`inline-flex items-center gap-1 rounded px-2 py-0.5 ${
-                                    entry.gateResult === 'passed'
-                                      ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
-                                      : entry.gateResult === 'escalated'
-                                        ? 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400'
-                                        : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
-                                  }`}
-                                >
-                                  <span
-                                    className={`inline-block size-1.5 rounded-full ${
-                                      entry.gateResult === 'passed'
-                                        ? 'bg-green-500'
-                                        : entry.gateResult === 'escalated'
-                                          ? 'bg-orange-500'
-                                          : 'bg-red-500'
-                                    }`}
-                                  />
-                                  关卡判定
-                                </span>
-                              )}
-                            </div>
-
-                            {/* 行 3: AI 对话摘要（如果存在） */}
-                            {hasAiDialogue && entry.aiReply && (
-                              <div className="ml-23 text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 max-w-2xl line-clamp-2">
-                                {entry.aiReply.slice(0, 200)}
-                                {entry.aiReply.length > 200 && '...'}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                  )}
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-4 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block size-2 rounded-full bg-blue-500" />
+                    代码变更
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block size-2 rounded-full bg-purple-500" />
+                    AI 对话
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block size-2 rounded-full bg-green-500" />
+                    关卡判定
+                  </span>
                 </div>
-              </CardContent>
-            </Card>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-expanded={activityOpen}
+                  aria-controls="timeline-body"
+                  aria-label={activityOpen ? '收起实时活动流' : '展开实时活动流'}
+                  onClick={() => setActivityOpen((v) => !v)}
+                >
+                  {activityOpen ? '收起' : '展开'}
+                  <ChevronDown
+                    className={`ml-1 size-3.5 transition-transform ${activityOpen ? 'rotate-180' : ''}`}
+                  />
+                </Button>
+              </div>
+            </div>
+            {activityOpen && (
+              <Card>
+                <CardContent className="p-0" id="timeline-body">
+                  <div className="divide-y divide-border">
+                    {logs.length === 0 ? (
+                      <div className="py-12 text-center text-sm text-muted-foreground">
+                        暂无日志数据
+                      </div>
+                    ) : (
+                      /* 真实日志渲染：三轨道 */
+                      logs
+                        .slice()
+                        .reverse()
+                        .map((entry) => {
+                          const overrideKey = `${entry.studentId}:${entry.taskId}:${entry.checkpointId}`;
+                          const isOverridden = overridden.has(overrideKey);
+                          const canOverride =
+                            entry.gateResult === 'failed' || entry.gateResult === 'escalated';
+                          const isOverridingThis = overriding === overrideKey;
+
+                          // 判断有哪些轨道内容
+                          const hasCodeDiff = Boolean(entry.codeDiff && entry.codeDiff.trim());
+                          const hasAiDialogue = Boolean(entry.promptText || entry.aiReply);
+                          const hasGateResult = Boolean(entry.gateResult);
+
+                          return (
+                            <div
+                              key={entry.id}
+                              className="p-4 hover:bg-muted/50 transition-colors space-y-2"
+                            >
+                              {/* 行 1: 基础信息 */}
+                              <div className="flex items-center gap-3">
+                                <div className="flex-shrink-0 w-20 text-xs text-muted-foreground font-mono">
+                                  {formatTime(entry.ts)}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <span className="font-medium text-foreground truncate">
+                                      {entry.studentId}
+                                    </span>
+                                    <span className="text-muted-foreground shrink-0">·</span>
+                                    <span className="text-primary font-medium truncate">
+                                      {entry.taskId}
+                                    </span>
+                                    <span className="text-muted-foreground text-xs">
+                                      {entry.checkpointId}
+                                    </span>
+                                  </div>
+                                </div>
+                                {/* 关卡判定 Badge */}
+                                {hasGateResult && (
+                                  <span
+                                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${gateBadge(entry.gateResult)}`}
+                                  >
+                                    {gateLabel(entry.gateResult)}
+                                  </span>
+                                )}
+                                {/* Override 按钮 */}
+                                {canOverride && !isOverridden && (
+                                  <Button
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={() =>
+                                      handleOverride(
+                                        entry.studentId,
+                                        entry.taskId,
+                                        entry.checkpointId
+                                      )
+                                    }
+                                    disabled={isOverridingThis}
+                                  >
+                                    {isOverridingThis ? '放行中...' : '放行'}
+                                  </Button>
+                                )}
+                                {isOverridden && (
+                                  <span className="text-xs text-green-600 dark:text-green-400">
+                                    已放行
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* 行 2: 三轨道内容 */}
+                              <div className="ml-23 flex flex-wrap gap-2 text-xs">
+                                {hasCodeDiff && (
+                                  <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400">
+                                    <span className="inline-block size-1.5 rounded-full bg-blue-500" />
+                                    代码变更
+                                    {entry.codeDiff!.split('\n').length > 1 &&
+                                      ` (+${entry.codeDiff!.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).length}/-${entry.codeDiff!.split('\n').filter((l) => l.startsWith('-') && !l.startsWith('---')).length})`}
+                                  </span>
+                                )}
+                                {hasAiDialogue && (
+                                  <span className="inline-flex items-center gap-1 rounded bg-purple-50 px-2 py-0.5 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400">
+                                    <span className="inline-block size-1.5 rounded-full bg-purple-500" />
+                                    AI 对话
+                                    {entry.gateType && (
+                                      <span className="text-purple-500 dark:text-purple-300">
+                                        ({entry.gateType})
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                                {hasGateResult && (
+                                  <span
+                                    className={`inline-flex items-center gap-1 rounded px-2 py-0.5 ${
+                                      entry.gateResult === 'passed'
+                                        ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                                        : entry.gateResult === 'escalated'
+                                          ? 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400'
+                                          : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`inline-block size-1.5 rounded-full ${
+                                        entry.gateResult === 'passed'
+                                          ? 'bg-green-500'
+                                          : entry.gateResult === 'escalated'
+                                            ? 'bg-orange-500'
+                                            : 'bg-red-500'
+                                      }`}
+                                    />
+                                    关卡判定
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* 行 3: AI 对话摘要（如果存在） */}
+                              {hasAiDialogue && entry.aiReply && (
+                                <div className="ml-23 text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 max-w-2xl line-clamp-2">
+                                  {entry.aiReply.slice(0, 200)}
+                                  {entry.aiReply.length > 200 && '...'}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </section>
 
           {/* 趋势图表占位 */}
